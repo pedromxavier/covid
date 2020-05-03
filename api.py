@@ -182,10 +182,10 @@ class API:
         dates = cls.get_date_kwarg(filters['date'])
         
         if filters['state'] is None:
-            ## Nível Federal
-            if filters['city'] is None:
+            if filters['city'] is None: ## Nível Federal
                 return cls.get_country(dates)
-            ## Nível Municipal
+            elif filters['city'] is all: ## Nível Municipal
+                cities = cls.get_city_kwarg(filters['city'])
             else:
                 cities = cls.get_city_kwarg(filters['city'])
                 return cls.get_cities(dates, cities)
@@ -195,14 +195,14 @@ class API:
                 states = cls.get_state_kwarg(filters['state'])
                 return cls.get_states(dates, states)
             elif filters['city'] is all:
-                 raise ValueError('Ao menos um dos parâmetros `state` e `city` deve ser None')
+                 raise ValueError('Ao menos um dos parâmetros `state` e `city` deve ser `None` ou `all`.')
         else:
             ## Nível Estadual
             if filters['city'] is None:
                 states = cls.get_state_kwarg(filters['state'])
                 return cls.get_states(dates, states)
             else:
-                raise ValueError('Ao menos um dos parâmetros `state` e `city` deve ser None')
+                raise ValueError('Ao menos um dos parâmetros `state` e `city` deve ser `None` ou `all`.')
 
     @classmethod
     def to_json(cls, fname: str, results: list) -> str:

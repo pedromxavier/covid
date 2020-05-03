@@ -38,3 +38,12 @@ As opções para o parâmetro `date` da função `API.get` são:
 4. `set` contendo __strings__ :retorna os resultados como descritos acima, mas para diversas cidades.
 
 *Nota: algumas dessas funcionalidades ainda não foram implementadas, mas as dos exemplos já funcionam.*
+
+# Resumo:
+
+| `state` (`None`) |`city` (`None`)| Resultado |
+| ---------------- | ------------- | --------- |
+| `None`           | `None`        | A         |
+| `all`            | `None`        | A         |
+| `None`           | `all`         | A         |
+| `all`            | `all`         | A         |
