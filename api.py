@@ -24,6 +24,8 @@ class API:
 
     YEARS = ('2019', '2020')
 
+    CSV_HEADER = ['date', 'state', 'city', 'COVID_2020', 'SRAG_2019', 'SRAG_2020', 'PNEUMONIA_2019', 'PNEUMONIA_2020', 'INSUFICIENCIA_RESPIRATORIA_2019', 'INSUFICIENCIA_RESPIRATORIA_2020', 'SEPTICEMIA_2019', 'SEPTICEMIA_2020', 'INDETERMINADA_2019', 'INDETERMINADA_2020', 'OUTRAS_2019', 'OUTRAS_2020']
+
     @classmethod
     def fetch_data(cls, meta_data: dict, date):
         meta_data['start_date'] = meta_data['end_date'] = str(date)
@@ -31,7 +33,7 @@ class API:
         chart = xlib.fetch_data(cls.API_URL, meta_data)[0]['chart']
 
         for cause in cls.CAUSES:
-            for year in cls.CAUSES:
+            for year in cls.YEARS:
                 if cause == 'COVID' and int(year) < 2020:
                     continue
                 data[f'{cause}_{year}'] = chart[year][cause]
@@ -217,14 +219,13 @@ class API:
             file.write(json.dumps(results))
 
     @classmethod
-    def to_csv(cls, results: list):
+    def to_csv(cls, fname: str, results: list):
         if not fname.endswith('.csv'):
             fname = f'{fname}.csv'
 
-        header = []
-
         with open(fname, 'w') as file:
-            writer = csv.DictWriter(file, fieldnames=header)
+            writer = csv.DictWriter(file, fieldnames=cls.CSV_HEADER)
+            writer.writeheader()
             for result in results:
-                row = {(str(result[key]) if key in result else "") for key in header}
+                row = {key : (str(result[key]) if key in result else "") for key in cls.CSV_HEADER}
                 writer.writerow(row)
