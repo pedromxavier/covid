@@ -2,7 +2,6 @@
 import xlib
 import csv
 import json
-import re
 import datetime
 
 class API:
