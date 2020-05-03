@@ -41,21 +41,21 @@ As opções para o parâmetro `date` da função `API.get` são:
 
 # Resumo:
 
-| `state` (`None`) |`city` (`None`)| Resultado |
-| ---------------- | ------------- | --------- |
-| `None`           | `None`        | A         |
-| `all`            | `None`        | A         |
-| `str`            | `None`        | A         |
-| `set`            | `None`        | A         |
-| `None`           | `all`         | A         |
-| `all`            | `all`         | A         |
-| `str`            | `all`         | A         |
-| `set`            | `all`         | A         |
-| `None`           | `str`         | A         |
-| `all`            | `str`         | A         |
-| `str`            | `str`         | A         |
-| `set`            | `str`         | A         |
-| `None`           | `set`         | A         |
-| `all`            | `set`         | A         |
-| `str`            | `set`         | A         |
-| `set`            | `set`         | A         |
+| `state` (`None`) |`city` (`None`)| Nível do Resultado |
+| ---------------- | ------------- |:------------------:|
+| `None`           | `None`        | Federal            |
+| `all`            | `None`        | Estadual           |
+| `str`            | `None`        | Estadual           |
+| `set`            | `None`        | Estadual           |
+| `None`           | `all`         | **Ø**              |
+| `all`            | `all`         | Municipal          |
+| `str`            | `all`         | Municipal          |
+| `set`            | `all`         | Municipal          |
+| `None`           | `str`         | Municipal          |
+| `all`            | `str`         | **Ø**              |
+| `str`            | `str`         | **Ø**              |
+| `set`            | `str`         | **Ø**              |
+| `None`           | `set`         | Municipal          |
+| `all`            | `set`         | **Ø**              |
+| `str`            | `set`         | **Ø**              |
+| `set`            | `set`         | **Ø**              |
