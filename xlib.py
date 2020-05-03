@@ -57,7 +57,7 @@ def dump_cities(ans_data: list, ans_hash: bytes) -> None:
 def load_cities() -> (dict, dict):
     states = {}
     id_table = {}
-    with open(CITIES_CSV) as file:
+    with open(CITIES_CSV, encoding='utf-8') as file:
         reader = csv.reader(file)
         for row in reader:
             state, city, city_id = row
