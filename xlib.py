@@ -1,10 +1,13 @@
 from urllib.request import urlopen
 from urllib.parse import urlencode, urljoin
 from urllib.error import HTTPError
+from time import perf_counter as clock
+from functools import wraps
 import warnings
 import hashlib
 import datetime
 import json
+import re
 import csv
 
 def arange(start, stop, step):
@@ -77,6 +80,28 @@ def update_cities():
         dump_cities(ans_data, ans_hash)
         print('Lista de cidades atualizada.')
 
+def get_date(date: object):
+    if type(date) is datetime.date:
+        return date
+    elif type(date) is str:
+        return datetime.date.fromisoformat(date)
+    else:
+        raise TypeError(f'Especificação de data inválida: `{date}`')
 
+def get_city(city: object):
+    if type(city) is str and re.match(r'^[ a-zA-Z]+\-[A-Z]{2}$', city):
+        return city.split('-')
+    else:
+        raise ValueError('Especificação de cidade inválida: {city}.\nO formato correto é `Nome da Cidade-UF`')
+
+def time(callback):
+    @wraps(callback)
+    def new_callback(*args, **kwargs):
+        t = clock()
+        x = callback(*args, **kwargs)
+        t = clock() - t
+        print(f"Tempo: {t:.2f}s")
+        return x
+    return new_callback
 
         

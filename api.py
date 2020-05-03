@@ -2,6 +2,7 @@
 import xlib
 import csv
 import json
+import re
 import datetime
 
 class API:
@@ -41,22 +42,18 @@ class API:
 
     @classmethod
     def get_date_kwarg(cls, date_kwarg: object) -> list:
-        if (
-            type(date_kwarg) is tuple and
-            len(date_kwarg) == 2 and
-            all(type(x) is datetime.date for x in date_kwarg)
-            ):
-            start, stop = date_kwarg
+        if type(date_kwarg) is tuple and len(date_kwarg) == 2:
+            start, stop = map(xlib.get_date, date_kwarg)
         elif date_kwarg is all:
             start = datetime.date(2020, 1, 1)
             stop = datetime.date.today()
         elif date_kwarg is None:
             start = datetime.date.today()
             stop = datetime.date.today()
-        elif type(date_kwarg) is datetime.date:
-            start = stop = date_kwarg
+        elif type(date_kwarg) is datetime.date or type(datetime) is str:
+            start = stop = xlib.get_date(date_kwarg)
         else:
-            raise ValueError('Especificação de data inválida.')
+            raise TypeError(f'Especificação de data inválida: `{date_kwarg}`')
         step = datetime.timedelta(days=1)
         return [date for date in xlib.arange(start, stop, step)]
 
@@ -76,12 +73,9 @@ class API:
 
     @classmethod
     def get_city_kwarg(cls, city_kwarg: object) -> list:
-        if (
-            type(city_kwarg) is tuple and
-            len(city_kwarg) == 2 and
-            all(type(x) is str for x in city_kwarg)
-            ):
-            return [(*city_kwarg, cls.city_id(*city_kwarg))]
+        if type(city_kwarg) is str:
+            city, state = xlib.get_city(city_kwarg)
+            return [(state, city, cls.city_id(state, city))]
         elif city_kwarg is all:
             cities = []
             states = cls.STATES
@@ -92,7 +86,7 @@ class API:
         elif type(city_kwarg) is set:
             return sum([cls.get_city_kwarg(x) for x in city_kwarg], [])
         else:
-            raise ValueError(f'Especificação de Cidade inválida: `{city_kwarg}`.')
+            raise ValueError('Especificação de cidade inválida: {city}.\nO formato correto é `Nome da Cidade-UF`')
 
     @classmethod
     def city_id(cls, state: str, city_name: str):
@@ -166,11 +160,12 @@ class API:
                 city # Retorna os resultados a nível superior
                     = (None)
                     # Retorna os resultados de todas as cidades a nível municipal
+                    # (limitado pelo escopo de `state`)
                     | (all)
                     # Retorna os resultados a nível municipal
-                    | (tuple) = (uf: str, city_name: str)
+                    | (str) = f"{city}-{state}"
                     #  
-                    | (set) = {(uf: str, city_name: str), ... , (uf: str, city_name: str)}
+                    | (set) = {f"{city}-{state}",... ,f"{city}-{state}"}
 
             Exemplo:
             >>> api_get(state={'RJ', 'SP'}) # Busca em todas as cidades do rio e de são paulo
@@ -219,6 +214,7 @@ class API:
             file.write(json.dumps(results))
 
     @classmethod
+    @xlib.time
     def to_csv(cls, fname: str, results: list):
         if not fname.endswith('.csv'):
             fname = f'{fname}.csv'
