@@ -34,7 +34,7 @@ As opções para o parâmetro `date` da função `API.get` são:
 ## Cidades (`city`):
 1. `None`(default) : Se `state` também for `None`, retorna dados a nível federal. Caso contrário, retorna dados a nível estadual.
 2. `all` : retorna dados para todas as cidades, sob o escopo definido por `state`.
-3. __string__ no formato "Nome da Cidade-UF".
+3. `str` : __string__ no formato "Nome da Cidade-UF".
 4. `set` contendo __strings__ :retorna os resultados como descritos acima, mas para diversas cidades.
 
 *Nota: algumas dessas funcionalidades ainda não foram implementadas, mas as dos exemplos já funcionam.*
@@ -45,5 +45,17 @@ As opções para o parâmetro `date` da função `API.get` são:
 | ---------------- | ------------- | --------- |
 | `None`           | `None`        | A         |
 | `all`            | `None`        | A         |
+| `str`            | `None`        | A         |
+| `set`            | `None`        | A         |
 | `None`           | `all`         | A         |
 | `all`            | `all`         | A         |
+| `str`            | `all`         | A         |
+| `set`            | `all`         | A         |
+| `None`           | `str`         | A         |
+| `all`            | `str`         | A         |
+| `str`            | `str`         | A         |
+| `set`            | `str`         | A         |
+| `None`           | `set`         | A         |
+| `all`            | `set`         | A         |
+| `str`            | `set`         | A         |
+| `set`            | `set`         | A         |
