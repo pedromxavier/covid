@@ -1,8 +1,11 @@
 #!/usr/env/python3
-import xlib
+from collections import deque
 import csv
 import json
 import datetime
+import itertools
+
+import xlib
 
 class API:
 
@@ -24,20 +27,40 @@ class API:
 
     YEARS = ('2019', '2020')
 
-    CSV_HEADER = ['date', 'state', 'city', 'COVID_2020', 'SRAG_2019', 'SRAG_2020', 'PNEUMONIA_2019', 'PNEUMONIA_2020', 'INSUFICIENCIA_RESPIRATORIA_2019', 'INSUFICIENCIA_RESPIRATORIA_2020', 'SEPTICEMIA_2019', 'SEPTICEMIA_2020', 'INDETERMINADA_2019', 'INDETERMINADA_2020', 'OUTRAS_2019', 'OUTRAS_2020']
+    CAUSE_YEAR = [item for item in itertools.product(CAUSES, YEARS) if item != ('COVID', '2019')]
+
+    CSV_HEADER = ['date', 'state', 'city'] + [f'{cause}_{year}' for cause, year in CAUSE_YEAR]
+
+    request_queue = deque([])
 
     @classmethod
-    def fetch_data(cls, meta_data: dict, date):
-        meta_data['start_date'] = meta_data['end_date'] = str(date)
-        data = {'date' : date}
-        chart = xlib.fetch_data(cls.API_URL, meta_data)[0]['chart']
+    def fetch_chart(cls, chart: dict):
+        return {f'{cause}_{year}' : chart[year][cause] for cause, year in cls.CAUSE_YEAR}
 
-        for cause in cls.CAUSES:
-            for year in cls.YEARS:
-                if cause == 'COVID' and int(year) < 2020:
-                    continue
-                data[f'{cause}_{year}'] = chart[year][cause]
-        return data
+    @classmethod
+    def fetch_data(cls, meta_data: dict, date, **include):
+        meta_data['start_date'] = meta_data['end_date'] = str(date)
+        chart = xlib.fetch_data(cls.API_URL, meta_data)[0]['chart']
+        return {'date' : date, **include, **cls.fetch_chart(chart)}
+
+    @classmethod
+    def fetch_request(cls, meta_data:dict, date, **include):
+        meta_data['start_date'] = meta_data['end_date'] = str(date)
+        return (xlib.fetch_url(cls.API_URL, meta_data), {'date' : date, **include})
+
+    @classmethod
+    def enqueue_request(cls, url, data):
+        cls.request_queue.appendleft((url, data))
+
+    @classmethod
+    def get_request(cls, url, data):
+        return {**data, **cls.fetch_chart(xlib.make_request(url)[0]['chart'])}
+
+    @classmethod
+    def get_requests(cls):
+        while cls.request_queue:
+            url, data = cls.request_queue.pop()
+            yield cls.get_request(url, data)
 
     @classmethod
     def get_date_kwarg(cls, date_kwarg: object) -> list:
@@ -101,58 +124,79 @@ class API:
                 raise ValueError(f'Cidade não cadastrada: `{city_name} ({state})`.')
 
     @classmethod
-    def get_cities(cls, dates: list, cities) -> list:
+    def get_cities(cls, dates: list, cities, sync=True) -> list:
         """ Obtém dados a nível municipal
         """
         meta_data = {}
-
-        for date in dates:
-            for state, city, city_id in cities:
-                meta_data['city_id'] = city_id
-                meta_data['state'] = state
-                result = cls.fetch_data(meta_data, date)
-                result['state'] = state
-                result['city'] = city
-                yield result
-
-    @classmethod
-    def get_all_cities_in_states(cls, dates, states) -> list:
-        """
-        """
-        meta_data = {}        
-        for date in dates:
-            for state in states:
-                meta_data['state'] = state
-                for city in states[state]:
-                    meta_data['city_id'] = cls.city_id(state, city)
-                    result = cls.fetch_data(meta_data, date)
-                    result['city'] = city
-                    result['state'] = state
-                    yield result
+        if sync:
+            for date in dates:
+                for state, city, city_id in cities:
+                    meta_data['city_id'] = city_id
+                    meta_data['state'] = state
+                    yield cls.fetch_data(meta_data, date, state=state, city=city)   
+        else: ## async
+            for date in dates:
+                for state, city, city_id in cities:
+                    meta_data['city_id'] = city_id
+                    meta_data['state'] = state
+                    url, data = cls.fetch_request(meta_data, date, state=state, city=city)
+                    cls.enqueue_request(url, data)
 
     @classmethod
-    def get_states(cls, dates: list, states) -> list:
+    def get_all_cities_in_states(cls, dates, states, sync=True) -> list:
+        """
+        """
+        meta_data = {}
+        if sync:       
+            for date in dates:
+                for state in states:
+                    meta_data['state'] = state
+                    for city in cls.STATES[state]:
+                        meta_data['city_id'] = cls.city_id(state, city)
+                        yield cls.fetch_data(meta_data, date, state=state, city=city)
+        else: ## async
+            for date in dates:
+                for state in states:
+                    meta_data['state'] = state
+                    for city in cls.STATES[state]:
+                        meta_data['city_id'] = cls.city_id(state, city)
+                        url, data = cls.fetch_request(meta_data, date, state=state, city=city)
+                        cls.enqueue_request(url, data)
+
+    @classmethod
+    def get_states(cls, dates: list, states, sync=True) -> list:
         """ Obtém dados a nível estadual
         """
         meta_data = {}
-        for date in dates:
-            for state in states:
-                meta_data['state'] = state
-                result = cls.fetch_data(meta_data, date)
-                result['state'] = state
-                yield result
+        if sync:
+            for date in dates:
+                for state in states:
+                    meta_data['state'] = state
+                    yield cls.fetch_data(meta_data, date, state=state)
+        else: ## async
+            for date in dates:
+                for state in states:
+                    meta_data['state'] = state
+                    url, data = cls.fetch_request(meta_data, date, state=state)
+                    cls.enqueue_request(url, data)
+            return cls.get_requests()
 
     @classmethod
-    def get_country(cls, dates: list) -> list:
+    def get_country(cls, dates: list, sync=True) -> list:
         """ Obtém dados a nível federal
         """
-        meta_data = {}
-        meta_data['state'] = 'Todos'
-        for date in dates:
-            yield cls.fetch_data(meta_data, date)        
+        meta_data = {'state' : 'Todos'}
+        if sync:
+            for date in dates:
+                yield cls.fetch_data(meta_data, date)
+        else:
+            for date in dates:
+                url, data = cls.fetch_request(meta_data, date)
+                cls.enqueue_request(url, data)
+            return cls.get_requests()
 
     @classmethod
-    def get(cls, **kwargs) -> list:
+    def get(cls, sync=True, **kwargs) -> list:
         """ Filtros (**kwargs):
                 date # Busca os resultados de hoje.
                     = (None)
@@ -198,19 +242,19 @@ class API:
         
         ## Nível Federal
         if filters['state'] is None and filters['city'] is None:
-            return cls.get_country(dates)
+            return cls.get_country(dates, sync=sync)
         ## Nível Estadual
         elif filters['city'] is None:
             if filters['state'] in {None, all} or type(filters['state']) in {set, str}:
                 states = cls.get_state_kwarg(filters['state'])
-                return cls.get_states(dates, states)
+                return cls.get_states(dates, states, sync=sync)
         ## Nível Municipal
         elif filters['city'] is all and filters['state'] is not None:
             states = cls.get_state_kwarg(filters['state'])
-            return cls.get_all_cities_in_states(dates, states)
+            return cls.get_all_cities_in_states(dates, states, sync=sync)
         elif type(filters['city']) in {set, str} and filters['state'] is None:
             cities = cls.get_city_kwarg(filters['city'])
-            return cls.get_cities(dates, cities)
+            return cls.get_cities(dates, cities, sync=sync)
         else:
             raise ValueError(f"Especificação inválida de localização: (city={filters['city']!r}, state={filters['state']!r})")
 
