@@ -1,7 +1,8 @@
 from urllib.request import urlopen
 from urllib.parse import urlencode, urljoin
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from time import perf_counter as clock
+from time import sleep
 from functools import wraps
 import warnings
 import hashlib
@@ -15,26 +16,33 @@ def arange(start, stop, step):
         yield start
         start += step
 
-def fetch_data(url: str, data: dict=None) -> (object, bytes):
-    """ fetch_data(url: str, data: dict=None) -> (dict, bytes)
+def fetch_data(api_url: str, data: dict=None) -> (object, bytes):
+    """ fetch_data(api_url: str, data: dict=None) -> (dict, bytes)
         Returns an object decoded from a json object string and its hash.
     """
-    if data is None:
-        url = url
-    else:
-        url = urljoin(url, f"?{urlencode(data)}")
+    url = fetch_url(api_url, data)
     try:
-        ## Read answer from API
-        ans = urlopen(url).read()
-        ## Decode JSON into Python dict
-        obj = json.loads(ans.decode('utf-8'))
-        ## Get hash from `ans` bytes
-        hsh = hashlib.sha256(ans).digest()
-    except HTTPError as error:
-        print(f'GET {url}')
-        print(error)
-        raise Exception
+        return make_request(url)
+    except HTTPError:
+        raise RuntimeError(f"500: Internal Server Error\n@ GET {url}")
+    except URLError:
+        raise RuntimeError("Desconectado da Internet. Operação Cancelada.")
+
+def make_request(url: str) -> (object, bytes):
+    ## Read answer from API
+    ans = urlopen(url).read()
+    ## Decode JSON into Python dict
+    obj = json.loads(ans.decode('utf-8'))
+    ## Get hash from `ans` bytes
+    hsh = hashlib.sha256(ans).digest()
+
     return obj, hsh
+
+def fetch_url(url: str, data: dict=None) -> str:
+    if data is None:
+        return url
+    else:
+        return urljoin(url, f"?{urlencode(data)}")
 
 CITIES_URL = r'https://transparencia.registrocivil.org.br/api/cities'
 CITIES_CSV = r'data/cidades.csv'
@@ -89,7 +97,7 @@ def get_date(date: object):
         raise TypeError(f'Especificação de data inválida: `{date}`')
 
 def get_city(city: object):
-    if type(city) is str and re.match(r'^[ a-zA-Z]+\-[A-Z]{2}$', city):
+    if type(city) is str and re.match(r'^[a-zA-zà-ÿÀ-ÿ ]+\-[A-Z]{2}$', city):
         return city.split('-')
     else:
         raise ValueError('Especificação de cidade inválida: {city}.\nO formato correto é `Nome da Cidade-UF`')
