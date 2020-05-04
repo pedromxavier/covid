@@ -49,6 +49,15 @@ class Plotter:
         cls.plot(**kwargs)
 
     @classmethod
+    def plot_all(cls, **kwargs):
+        fig, ax = plt.subplots()
+
+        for cause_year in cls.CAUSE_YEAR:
+            ax.plot(cls.x, cls.y[cause_year], label=cause_year)
+        plt.legend()
+        cls.plot(**kwargs)
+
+    @classmethod
     def compare_cities(cls, *cities, **kwargs):
         ...
 
