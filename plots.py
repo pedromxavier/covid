@@ -17,7 +17,7 @@ class Plotter:
                 'OUTRAS'
             )
 
-    CAUSES = [f'{cause}_{year}' for cause in causes for year in ('2020','2019',) if not (cause=='COVID'and year=='2019')]
+    CAUSES = [f'{cause}_{year}' for cause in causes for year in ('2020','2019') if f'{cause}_{year}' != 'COVID_2019']
 
     @classmethod
     def compare_cities(cls, *cities, **kwargs):

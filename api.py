@@ -116,6 +116,21 @@ class API:
                 yield result
 
     @classmethod
+    def get_all_cities_in_states(cls, dates, states) -> list:
+        """
+        """
+        meta_data = {}        
+        for date in dates:
+            for state in states:
+                meta_data['state'] = state
+                for city in states[state]:
+                    meta_data['city_id'] = cls.city_id(state, city)
+                    result = cls.fetch_data(meta_data, date)
+                    result['city'] = city
+                    result['state'] = state
+                    yield result
+
+    @classmethod
     def get_states(cls, dates: list, states) -> list:
         """ Obtém dados a nível estadual
         """
@@ -181,28 +196,23 @@ class API:
 
         dates = cls.get_date_kwarg(filters['date'])
         
-        if filters['state'] is None:
-            if filters['city'] is None: ## Nível Federal
-                return cls.get_country(dates)
-            elif filters['city'] is all: ## Nível Municipal
-                cities = cls.get_city_kwarg(filters['city'])
-            else:
-                cities = cls.get_city_kwarg(filters['city'])
-                return cls.get_cities(dates, cities)
-        elif filters['state'] is all:
-            ## Nível Estadual
-            if filters['city'] is None:
+        ## Nível Federal
+        if filters['state'] is None and filters['city'] is None:
+            return cls.get_country(dates)
+        ## Nível Estadual
+        elif filters['city'] is None:
+            if filters['state'] in {None, all} or type(filters['state']) in {set, str}:
                 states = cls.get_state_kwarg(filters['state'])
                 return cls.get_states(dates, states)
-            elif filters['city'] is all:
-                 raise ValueError('Ao menos um dos parâmetros `state` e `city` deve ser `None` ou `all`.')
+        ## Nível Municipal
+        elif filters['city'] is all and filters['state'] is not None:
+            states = cls.get_state_kwarg(filters['state'])
+            return cls.get_all_cities_in_states(dates, states)
+        elif type(filters['city']) in {set, str} and filters['state'] is None:
+            cities = cls.get_city_kwarg(filters['city'])
+            return cls.get_cities(dates, cities)
         else:
-            ## Nível Estadual
-            if filters['city'] is None:
-                states = cls.get_state_kwarg(filters['state'])
-                return cls.get_states(dates, states)
-            else:
-                raise ValueError('Ao menos um dos parâmetros `state` e `city` deve ser `None` ou `all`.')
+            raise ValueError(f"Especificação inválida de localização: (city={filters['city']!r}, state={filters['state']!r})")
 
     @classmethod
     def to_json(cls, fname: str, results: list) -> str:
