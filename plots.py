@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import csv
-import xlib
+import api_lib
 import numpy as np
 import datetime
 from api import API
@@ -51,7 +51,6 @@ class Plotter:
     @classmethod
     def plot_all(cls, **kwargs):
         fig, ax = plt.subplots()
-
         for cause_year in cls.CAUSE_YEAR:
             ax.plot(cls.x, cls.y[cause_year], label=cause_year)
         plt.legend()

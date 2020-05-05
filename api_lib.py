@@ -16,29 +16,46 @@ def arange(start, stop, step):
         yield start
         start += step
 
-def fetch_data(api_url: str, data: dict=None) -> (object, bytes):
-    """ fetch_data(api_url: str, data: dict=None) -> (dict, bytes)
-        Returns an object decoded from a json object string and its hash.
+def fetch_data(api_url: str, data: dict=None) -> (object):
+    """ fetch_data(api_url: str, data: dict=None) -> (object)
+        Returns an object decoded from a json object string.
     """
-    url = fetch_url(api_url, data)
+    url = encode_url(api_url, data)
     try:
-        return make_request(url)
+        return get_request(url)
     except HTTPError:
         raise RuntimeError(f"500: Internal Server Error\n@ GET {url}")
     except URLError:
         raise RuntimeError("Desconectado da Internet. Operação Cancelada.")
 
-def make_request(url: str) -> (object, bytes):
+def fetch_data_hash(api_url: str, data: dict=None) -> (object, bytes):
+    """ fetch_data(api_url: str, data: dict=None) -> (object, bytes)
+        Returns an object decoded from a json object string and its hash.
+    """
+    url = encode_url(api_url, data)
+    try:
+        return get_request_hash(url)
+    except HTTPError:
+        raise RuntimeError(f"500: Internal Server Error\n@ GET {url}")
+    except URLError:
+        raise RuntimeError("Desconectado da Internet. Operação Cancelada.")
+
+def get_request(url: str) -> (object):
+    ## Read answer from API
+    ans = urlopen(url).read()
+    ## Decode JSON into Python dict
+    return json.loads(ans.decode('utf-8'))
+
+def get_request_hash(url: str) -> (object, bytes):
     ## Read answer from API
     ans = urlopen(url).read()
     ## Decode JSON into Python dict
     obj = json.loads(ans.decode('utf-8'))
     ## Get hash from `ans` bytes
     hsh = hashlib.sha256(ans).digest()
-
     return obj, hsh
 
-def fetch_url(url: str, data: dict=None) -> str:
+def encode_url(url: str, data: dict=None) -> str:
     if data is None:
         return url
     else:
@@ -51,7 +68,7 @@ CITIES_HASH = r'data/cidades.hash'
 
 ## Cities
 def fetch_cities() -> (list, bytes):
-    ans_data, ans_hash = fetch_data(CITIES_URL)
+    ans_data, ans_hash = fetch_data_hash(CITIES_URL)
     return ans_data['cities'], ans_hash
 
 def dump_cities(ans_data: list, ans_hash: bytes) -> None:
