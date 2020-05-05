@@ -13,7 +13,7 @@ $ cd covid/
 ```
 $ pip -r install requirements.txt
 ```
-*Nota*: necessário para realizar requisições assíncronas.
+**Nota**: necessário para realizar requisições assíncronas.
 
 ## Uso
 
@@ -24,13 +24,13 @@ $ python3
 Total de requisições: 126
 Progresso: [===============>] 126/126      
 Tempo: 6.09s
->>> API.to_csv('RJ', res)
+>>> API.to_csv('RJ', res) # gera `RJ.csv`
 Tempo: 0.01s
 >>> res = API.get(date=all, state='RJ', city=all) # dados a nível municipal para as cidades do Rio
 Total de requisições: 11718
 Progresso: [===============>] 11718/11718      
 Tempo: 324.16s
->>> API.to_csv('cidades-RJ', res)
+>>> API.to_csv('cidades-RJ', res) # gera `cidades-RJ.csv`
 Tempo: 0.15s
 ```
 
