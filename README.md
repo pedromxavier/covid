@@ -74,10 +74,3 @@ As opções para o parâmetro `date` da função `API.get` são:
 | `set`            | `set`         | **Ø**              |
 
 *Nestes casos, aos nomes das cidades é adicionada a sigla da UF após o hífen.
-
-## Por fazer
-1. Corrigir problemas de acentuação nos nomes das cidades. (ex. "Petropolis")
-2. Mais opções de Plot
-3. União de Resultados (ex. Grande Rio)
-4. Busca por locais com resultados inconsistentes (ex. Duque de Caixas-RJ)
-5. Melhorar esta documentação
