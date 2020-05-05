@@ -26,11 +26,6 @@ except ImportError:
 ## Local
 import api_lib
 
-class Thread(threading.Thread):
-    def __init__(self, callback, *args):
-        threading.Thread.__init__(self, target=callback, args=args)
-        self.start()
-
 class API:
 
     API_URL = r'https://transparencia.registrocivil.org.br/api/covid-covid-registral'
@@ -305,8 +300,8 @@ class API:
                     raise
         return cls.results
         
-
     @classmethod
+    @api_lib.time
     def to_json(cls, fname: str, results: list) -> str:
         if not fname.endswith('.json'):
             fname = f'{fname}.json'
