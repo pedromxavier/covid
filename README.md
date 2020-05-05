@@ -72,6 +72,7 @@ As opções para o parâmetro `date` da função `API.get` são:
 | `all`            | `set`         | **Ø**              |
 | `str`            | `set`         | Municipal*         |
 | `set`            | `set`         | **Ø**              |
+
 *Nestes casos, aos nomes das cidades é adicionada a sigla da UF após o hífen.
 
 ## Por fazer
