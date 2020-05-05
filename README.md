@@ -1,17 +1,30 @@
-# covid
+# Interface para a API dos cartórios.
 
-Exemplo de uso:
+## Instalação
 
-```$ python3 -i api.py
->>> res = API.get(date=all, city="Rio de Janeiro-RJ")
->>> API.to_csv('rio', res) # rio.csv
-Tempo: 29.331178s
->>> res = API.get(date=all, city="Niteroi-RJ")
->>> API.to_csv('niteroi', res) # niteroi.csv
-Tempo: 29.301651s
->>> res = API.get(date=all, city={"Niteroi-RJ", "Rio de Janeiro-RJ"})
->>> API.to_csv('rio+niteroi', res) # rio+niteroi.csv
-Tempo: 52.293059s
+```
+$ git clone https://github.com/pedromxavier/covid
+$ cd covid/
+$ pip -r install requirements.txt
+```
+
+## Uso
+
+```
+$ python3
+>>> from api import API
+>>> res = API.get(date=all, state='RJ') # dados a nível estadual para o Rio de Janeiro
+Total de requisições: 126
+Progresso: [===============>] 126/126      
+Tempo: 6.09s
+>>> API.to_csv('RJ', res)
+Tempo: 0.01s
+>>> res = API.get(date=all, state='RJ', city=all) # dados a nível municipal para as cidades do Rio
+Total de requisições: 11718
+Progresso: [===============>] 11718/11718      
+Tempo: 324.16s
+>>> API.to_csv('cidades-RJ', res)
+Tempo: 0.15s
 ```
 
 ## Datas (`date`):
@@ -27,17 +40,15 @@ As opções para o parâmetro `date` da função `API.get` são:
 
 ## Estados (`state`):
 1. `None`(default) : Se `city` também for `None`, retorna dados a nível federal.
-2. `all` : 
-3. `str` : Se `city` for `None`, retorna dados a nível estadual. Se `city` for `all`, retorna todas as cidades deste estado.
+2. `all` : Se `city` for `None`, retorna dados a nível estadual. Se `city` for `all`, retorna resultados a nível municipal para todas as cidades de todos os estados.
+3. `str` : Se `city` for `None`, retorna dados a nível estadual. Se `city` for `all`, retorna resultados a nível municipal para todas as cidades deste estado.
 4. `set` contendo __strings__ : retorna os resultados como descritos acima, mas para diversos estados.
 
 ## Cidades (`city`):
 1. `None`(default) : Se `state` também for `None`, retorna dados a nível federal. Caso contrário, retorna dados a nível estadual.
 2. `all` : retorna dados para todas as cidades, sob o escopo definido por `state`.
 3. `str` : __string__ no formato "Nome da Cidade-UF".
-4. `set` contendo __strings__ :retorna os resultados como descritos acima, mas para diversas cidades.
-
-*Nota: algumas dessas funcionalidades ainda não foram implementadas, mas as dos exemplos já funcionam.*
+4. `set` contendo __strings__ : retorna os resultados como descritos acima, mas para diversas cidades.
 
 # Resumo:
 
@@ -53,9 +64,11 @@ As opções para o parâmetro `date` da função `API.get` são:
 | `set`            | `all`         | Municipal          |
 | `None`           | `str`         | Municipal          |
 | `all`            | `str`         | **Ø**              |
-| `str`            | `str`         | **Ø**              |
+| `str`            | `str`         | Municipal          |
 | `set`            | `str`         | **Ø**              |
-| `None`           | `set`         | Municipal          |
+| `None`           | `set`         | Municipal*         |
 | `all`            | `set`         | **Ø**              |
-| `str`            | `set`         | **Ø**              |
+| `str`            | `set`         | Municipal*         |
 | `set`            | `set`         | **Ø**              |
+
+*Nestes casos, aos nomes das cidades são adicionados a sigla da UF após o hífen.
