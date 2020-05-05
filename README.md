@@ -1,12 +1,19 @@
 # Interface para a API dos cartórios.
 
 ## Instalação
+Requer Python 3.7.3 ou superior.
 
+### Instalação Básica
 ```
 $ git clone https://github.com/pedromxavier/covid
 $ cd covid/
+```
+
+### Instalação Completa
+```
 $ pip -r install requirements.txt
 ```
+*Nota*: necessário para realizar requisições assíncronas.
 
 ## Uso
 
