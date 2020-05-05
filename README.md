@@ -39,7 +39,7 @@ As opções para o parâmetro `date` da função `API.get` são:
 1. `None` (default) : retorna resultados para o dia de hoje
 2. `all` : retorna resultados para todas as datas desde 01/01
 3. _string_ (`str`) no formarto ISO "AAAA-mm-dd" ou objeto `datetime.date` : retorna resultados para o dia especificado
-4. Duas datas no formato acima, em uma tupla : retorna resultados entre as duas datas
+4. Duas datas no formato acima, em uma tupla : retorna resultados entre as duas datas (incluindo início e fim).
 
 #### Estados (`state`):
 1. `None`(default) : Se `city` também for `None`, retorna dados a nível federal.
@@ -76,6 +76,7 @@ As opções para o parâmetro `date` da função `API.get` são:
 
 ## Por fazer
 1. Corrigir problemas de acentuação nos nomes das cidades. (ex. "Petropolis")
-1. Mais opções de Plot
-2. União de Resultados (ex. Grande Rio)
-3. Busca por locais com resultados inconsistentes (ex. Duque de Caixas-RJ)
+2. Mais opções de Plot
+3. União de Resultados (ex. Grande Rio)
+4. Busca por locais com resultados inconsistentes (ex. Duque de Caixas-RJ)
+5. Melhorar esta documentação
