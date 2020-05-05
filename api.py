@@ -1,12 +1,35 @@
 #!/usr/env/python3
+## Statndard Library
 import asyncio
-import aiohttp
 import csv
 import json
 import datetime
 import itertools
+import threading
+import warnings
 
+## Third-Party
+try:
+    import aiohttp
+    ASYNC_LIB = True
+except ImportError:
+    ASYNC_LIB = False
+    warnings.warn('Falha ao importar bilioteca `aiohttp`. Requisições assíncronas indisponíveis.', category=ImportWarning, stacklevel=2)
+try:
+    import nest_asyncio
+    nest_asyncio.apply()
+    JUPYTER_ASYNC_LIB = True
+except ImportError:
+    JUPYTER_ASYNC_LIB = False
+    warnings.warn('Falha ao importar bilioteca `nest_asyncio`. Requisições assíncronas indisponíveis no Jupyter Notebook.', category=ImportWarning, stacklevel=2)
+
+## Local
 import api_lib
+
+class Thread(threading.Thread):
+    def __init__(self, callback, *args):
+        threading.Thread.__init__(self, target=callback, args=args)
+        self.start()
 
 class API:
 
@@ -24,7 +47,7 @@ class API:
                 'SEPTICEMIA',
                 'INDETERMINADA',
                 'OUTRAS'
-            )
+    )
 
     YEARS = ('2019', '2020')
 
@@ -34,6 +57,20 @@ class API:
 
     requests = []
     results = []
+
+    done = 0
+    lock = threading.Lock()
+
+    @classmethod
+    def progress(cls):
+        with cls.lock:
+            cls.done += 1
+            end = "\r" if cls.done < cls.total else "\n"
+            print(f'Progresso: {cls.pbar(cls.done/cls.total)} {cls.done}/{cls.total}      ', end=end)
+            
+    @classmethod
+    def pbar(cls, x: float):
+        return f"[{int(x * 16 - 1) * '=' + '>' + int((1-x) * 16) * ' '}]"
 
     @classmethod
     def extract_chart(cls, chart: dict):
@@ -47,24 +84,45 @@ class API:
     ## -- SYNC --
     @classmethod
     def get_request(cls, url, data):
-        return {**data, **cls.extract_chart(api_lib.get_request(url)['chart'])}
+        ans_data = cls.extract_chart(api_lib.get_request(url)['chart'])
+        cls.progress()
+        return {**data, **ans_data}
 
     @classmethod
     def get_requests(cls):
-        cls.results.extend([cls.get_request(*req) for req in cls.requests])
+        return [cls.get_request(*req) for req in cls.requests]
 
     ## -- SYNC --
 
-    ## -- ASYNC --
+    ## -- ASYNC --    
     @classmethod
-    async def async_get_request(cls, url: str, data: dict, session: aiohttp.ClientSession):
+    async def async_get_request(cls, url: str, data: dict, session):
         async with session.get(url) as ans:
-            return {**data, **await ans.json()}
+            attempts = 1
+            while ans.status in {502, 504} and attempts <= 5:
+                await asyncio.sleep(1)
+                attempts += 1
+            else:
+                try:
+                    ans_data = cls.extract_chart((await ans.json())['chart'])
+                    cls.progress()
+                    return {**data, **ans_data}
+                except:
+                    raise Exception(f'Code {ans.status} in GET {url}')
+
+    @classmethod
+    async def async_sem_request(cls, url: str, data: dict, session, sem=None):
+        if sem is None:
+            return await cls.async_get_request(url, data, session)
+        else:
+            async with sem:
+                return await cls.async_get_request(url, data, session)
 
     @classmethod
     async def async_run(cls):
+        sem = asyncio.Semaphore(1024)
         async with aiohttp.ClientSession() as session:
-            tasks = [asyncio.ensure_future(cls.async_get_request(*req, session)) for req in cls.requests]
+            tasks = [asyncio.ensure_future(cls.async_sem_request(*req, session, sem)) for req in cls.requests]
             cls.results.extend(await asyncio.gather(*tasks))
 
     @classmethod
@@ -106,8 +164,10 @@ class API:
             raise ValueError(f'Especificação de estado inválida: `{state_kwarg}`.')
 
     @classmethod
-    def get_city_kwarg(cls, city_kwarg: object) -> list:
+    def get_city_kwarg(cls, city_kwarg: object, state_sufix: str=None) -> list:
         if type(city_kwarg) is str:
+            if state_sufix is not None:
+                city_kwarg = f'{city_kwarg}-{state_sufix}'
             city, state = api_lib.get_city(city_kwarg)
             return [(state, city, cls.city_id(state, city))]
         elif city_kwarg is all:
@@ -118,9 +178,9 @@ class API:
                     cities.append((state, city, cls.city_id(state, city)))
             return cities
         elif type(city_kwarg) is set:
-            return sum([cls.get_city_kwarg(x) for x in city_kwarg], [])
+            return sum([cls.get_city_kwarg(x, state_sufix=state_sufix) for x in city_kwarg], [])
         else:
-            raise ValueError('Especificação de cidade inválida: {city}.\nO formato correto é `Nome da Cidade-UF`')
+            raise ValueError(f'Especificação de cidade inválida: {city}.\nO formato correto é `Nome da Cidade-UF`')
 
     @classmethod
     def city_id(cls, state: str, city_name: str):
@@ -181,6 +241,10 @@ class API:
     def get(cls, **kwargs) -> list:
         """
         """
+        ## Reset Progress counters
+        cls.done = 0
+        cls.total = 0
+
         ## Reset results and requests
         del cls.results[:]
         del cls.requests[:]
@@ -212,16 +276,33 @@ class API:
         elif type(filters['city']) in {set, str} and filters['state'] is None:
             cities = cls.get_city_kwarg(filters['city'])
             requests = cls.get_cities(dates, cities)
+        elif type(filters['city']) in {set, str} and type(filters['state']) is str:
+            cities = cls.get_city_kwarg(filters['city'], state_sufix=filters['state'])
+            requests = cls.get_cities(dates, cities)
         else:
             raise ValueError(f"Especificação inválida de localização: (city={filters['city']!r}, state={filters['state']!r})")
 
         cls.requests.extend(requests)
+
+        cls.total = len(cls.requests)
+
+        print(f'Total de requisições: {cls.total}')
         
         if sync:
             cls.get_requests()
         else:
-            cls.async_get_requests()
-
+            try:
+                cls.async_get_requests()
+            except NameError:
+                if not ASYNC_LIB:
+                    raise ImportError('Falha ao importar bilioteca `aiohttp`. Requisições assíncronas indisponíveis.')
+                else:
+                    raise
+            except RuntimeError:
+                if not JUPYTER_ASYNC_LIB:
+                    raise ImportError('Falha ao importar bilioteca `nest_asyncio`. Requisições assíncronas indisponíveis no Jupyter Notebook.')
+                else:
+                    raise
         return cls.results
         
 

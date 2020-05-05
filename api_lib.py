@@ -117,7 +117,7 @@ def get_city(city: object):
     if type(city) is str and re.match(r'^[a-zA-zà-ÿÀ-ÿ ]+\-[A-Z]{2}$', city):
         return city.split('-')
     else:
-        raise ValueError('Especificação de cidade inválida: {city}.\nO formato correto é `Nome da Cidade-UF`')
+        raise ValueError(f'Especificação de cidade inválida: {city}.\nO formato correto é `Nome da Cidade-UF`')
 
 def time(callback):
     @wraps(callback)
