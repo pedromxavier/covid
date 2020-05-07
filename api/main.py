@@ -50,7 +50,7 @@ class API:
 
     CAUSE_KEYS = [f'{cause}_{year}' for cause, year in CAUSE_YEAR]
 
-    CSV_HEADER = ['date', 'state', 'city'] + CAUSE_KEYS
+    CSV_HEADER = ['date', 'state', 'city', 'region'] + CAUSE_KEYS
 
     QUERY_DATA = {
         'places[]' : ['HOSPITAL', 'DOMICILIO', 'VIA_PUBLICA', 'AMBULANCIA', 'OUTROS']
@@ -62,7 +62,10 @@ class API:
     done = 0
     lock = threading.Lock()
 
-    RESULT_DATA = {**{'date' : '', 'state' : '', 'city' : ''}, **{cause_key : 0 for cause_key in CAUSE_KEYS}}
+    RESULT_DATA = {
+        **{'date': '', 'state': '', 'city': '', 'region': ''}, 
+        **{cause_key : 0 for cause_key in CAUSE_KEYS}
+    }
 
     @classmethod
     def progress(cls):
@@ -341,28 +344,22 @@ class API:
                 writer.writerow(row)
 
     @classmethod
-    def union(cls, res: list) -> list:
+    def union(cls, res: list, **kwargs) -> list:
         """
         """
-        states = set([])
-        cities = set([])
-        x = {}
+        region = api_lib.kwget('region', kwargs, '')
+        union_data = {}
         for data in res:
-            states.add(data['state'])
-            cities.add(data['city'])
             date = data['date']
-            if date not in x:
-                x[date] = {cause_key : 0 for cause_key in cls.CAUSE_KEYS}
+            if date not in union_data:
+                union_data[date] = {cause_key : 0 for cause_key in cls.CAUSE_KEYS}
             for cause_key in cls.CAUSE_KEYS:
-                x[date][cause_key] += data[cause_key]
-        state = "&".join(states)
-        city = "&".join(cities)
+                union_data[date][cause_key] += data[cause_key]
         results = []
-        for date in x:
-            x[date]['date'] = date
-            x[date]['state'] = state
-            x[date]['city'] = city
-            results.append(x[date])
+        for date in union_data:
+            union_data[date]['date'] = date
+            union_data[date]['region'] = region
+            results.append(union_data[date])
         return sorted(results, key=lambda x: x['date'])
 
 
