@@ -1,5 +1,5 @@
 #!/usr/env/python3
-## Statndard Library
+## Standard Library
 import asyncio
 import csv
 import json
@@ -267,7 +267,7 @@ class API:
             'date' : None,
             'state' : None,
             'city' : None,
-            'sync' : False,
+            'sync' : not ASYNC_LIB,
         }
         filters.update(kwargs)
 
