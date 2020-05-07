@@ -130,7 +130,11 @@ dmypy.json
 
 # csv files outside /data
 *.csv
-/data/*.csv
+!/data/*.csv
+
+# png files outside /data
+*.png
+!/data/*.png
 
 # vscode
 .vscode/
