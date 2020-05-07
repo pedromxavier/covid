@@ -17,6 +17,12 @@ def kwget(key, kwargs: dict, default=None):
     except KeyError:
         return default
 
+def check_kwargs(keys:set, kwargs: dict):
+    for key in kwargs:
+        if key not in keys:
+            raise ValueError(f'Parâmetro inválido: `{key}`. As opções válidas são {" - ".join(keys)}')
+
+
 def arange(start, stop, step):
     while start <= stop:
         yield start
