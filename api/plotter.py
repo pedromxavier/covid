@@ -28,6 +28,9 @@ class Plotter:
 
     CAUSE_YEAR = [f'{cause}_{year}' for cause, year in API.CAUSE_YEAR]
 
+    w = 8.0 #in
+    h = 5.0 #in
+
     def __init__(self, fname:str):
         self.fname = fname
         self.x, self.y = self.parse_csv(self.fname) 
@@ -39,11 +42,15 @@ class Plotter:
     def diff_covid_resp(self, **kwargs):
         fig, ax = plt.subplots()
 
-        ax.plot(self.x, self.y['COVID_2020'], label='COVID 2020')
-        ax.plot(self.x, sum(self.year_diff(cause) for cause in self.RESPIRATORY), label='DOENÇAS RESPITÓRIAS 2020 - 2019')
+        y = sum(self.year_diff(cause) for cause in self.RESPIRATORY)
+
+        ax.bar(self.x, self.y['COVID_2020'], width=0.8, label='COVID 2020')
+        ax.bar(self.x, y, width=0.8, label='DOENÇAS RESPITÓRIAS 2020 - 2019')
 
         plt.legend()
         plt.title('Aumento das doenças respitatórias vs. COVID')
+
+        fig.set_size_inches(self.w, self.h)
 
         self.plot(**kwargs)
 
@@ -52,6 +59,7 @@ class Plotter:
         for cause_year in self.CAUSE_YEAR:
             ax.plot(self.x, self.y[cause_year], label=cause_year)
         plt.legend()
+        fig.set_size_inches(self.w, self.h)
         self.plot(**kwargs)
 
     def compare_cities(self, *cities, **kwargs):
@@ -60,7 +68,7 @@ class Plotter:
     def compare_causes(self, *causes, **kwargs):
         ...
 
-    def compare_years(self, *causes):
+    def compare_years(self, *causes, **kwargs):
         n = len(causes)
         ncols = min(self, self.MAX_COLS, n)
         nrows = (n//ncols)
@@ -69,6 +77,10 @@ class Plotter:
             for j in range(ncols):
                 cause = causes[i*nrows + j]
                 axs[i, j].plot(self.x, np.cumsum(self.y[cause]))
+
+        fig.set_size_inches(self.w, self.h)
+
+        self.plot(**kwargs)
 
     def plot(self, **kwargs):
         ## Get fname kwarg
