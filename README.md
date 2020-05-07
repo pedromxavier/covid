@@ -34,6 +34,10 @@ Tempo: 324.16s
 Tempo: 0.15s
 ```
 ### Parâmetros do método `API.get`
+#### (`cumulative`)
+1. `True`: Retorna o valor acumulado de óbitos, a partir da data inicial.
+2. `False`: Retorna o número de novos óbitos para cada dia.
+
 #### Datas (`date`):
 As opções para o parâmetro `date` da função `API.get` são:
 1. `None` (default) : retorna resultados para o dia de hoje

@@ -1,9 +1,10 @@
 import matplotlib.pyplot as plt
 import csv
-import api_lib
 import numpy as np
 import datetime
+
 from api import API
+import api_lib
 
 class Plotter:
 
@@ -69,10 +70,17 @@ class Plotter:
                 cause = causes[i*nrows + j]
                 axs[i, j].plot(self.x, np.cumsum(self.y[cause]))
 
-    def plot(self, fname: str=None, **kwargs):
+    def plot(self, **kwargs):
+        ## Get fname kwarg
+        fname = api_lib.kwget('save', kwargs)
+        title = api_lib.kwget('title', kwargs, '')
+
+        ## Corrige o nome do arquivo
+        if not fname.endswith('.png'):
+            fname = f'{fname}.png'
 
         ## Adiciona Título ao plot.
-        if 'title' in kwargs: plt.title(kwargs['title'])
+        plt.title(title)
 
         ## Rotaciona as datas no eixo x.
         plt.xticks(rotation=70)
@@ -84,7 +92,9 @@ class Plotter:
             plt.savefig(fname)
 
     @classmethod
-    def parse_csv(cls, fname: str) -> (list, dict):
+    def parse_csv(cls, fname: str, **kwargs) -> (list, dict):
+        accumulate = api_lib.kwget('accumulate', kwargs, False)
+
         if not fname.endswith('.csv'):
             fname = f'{fname}.csv'
 
@@ -109,7 +119,10 @@ class Plotter:
                     y[cause].append(0)
                 while len(y[cause]) > len(x):
                     y[cause].pop(-1)
-                y[cause] = np.cumsum(y[cause], dtype=np.float64)
+                if accumulate:
+                    y[cause] = np.cumsum(y[cause], dtype=np.float64)
+                else:
+                    y[cause] = np.array(y[cause], dtype=np.float64)
                 y[cause][y[cause] == 0] = np.nan
         return x, y
 

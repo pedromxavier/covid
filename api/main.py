@@ -48,7 +48,13 @@ class API:
 
     CAUSE_YEAR = [item for item in itertools.product(CAUSES, YEARS) if item != ('COVID', '2019')]
 
-    CSV_HEADER = ['date', 'state', 'city'] + [f'{cause}_{year}' for cause, year in CAUSE_YEAR]
+    CAUSE_KEYS = [f'{cause}_{year}' for cause, year in CAUSE_YEAR]
+
+    CSV_HEADER = ['date', 'state', 'city'] + CAUSE_KEYS
+
+    QUERY_DATA = {
+        'places[]' : ['HOSPITAL', 'DOMICILIO', 'VIA_PUBLICA', 'AMBULANCIA', 'OUTROS']
+    }
 
     requests = []
     results = []
@@ -56,25 +62,33 @@ class API:
     done = 0
     lock = threading.Lock()
 
+    RESULT_DATA = {**{'date' : '', 'state' : '', 'city' : ''}, **{cause_key : 0 for cause_key in CAUSE_KEYS}}
+
     @classmethod
     def progress(cls):
         with cls.lock:
             cls.done += 1
             end = "\r" if cls.done < cls.total else "\n"
-            print(f'Progresso: {cls.pbar(cls.done/cls.total)} {cls.done}/{cls.total}      ', end=end)
+            x = cls.done/cls.total
+            print(f'Progresso: {cls.pbar(x)} {cls.done}/{cls.total} {100 * x:.2f}%      ', end=end)
             
     @classmethod
     def pbar(cls, x: float):
-        return f"[{int(x * 16 - 1) * '=' + '>' + int((1-x) * 16) * ' '}]"
+        if x < 1:
+            return f"[{int(x * 16 - 1) * '='}>{int((1-x) * 16) * ' '}]"
+        else:
+            return f"[{'=' * 16}]"
 
     @classmethod
     def extract_chart(cls, chart: dict):
         return {f'{cause}_{year}' : chart[year][cause] for cause, year in cls.CAUSE_YEAR}
 
     @classmethod
-    def build_request(cls, meta_data:dict, date, **include) -> (str, dict):
-        meta_data['start_date'] = meta_data['end_date'] = str(date)
-        return (api_lib.encode_url(cls.API_URL, meta_data), {'date' : date, **include})
+    def build_request(cls, query_data:dict, date, **include) -> (str, dict):
+        query_data['start_date'] = str(date[0])
+        query_data['end_date'] = str(date[1])
+        url = api_lib.encode_url(cls.API_URL, query_data)
+        return (url, {**cls.RESULT_DATA, 'date' : query_data['end_date'], **include})
 
     ## -- SYNC --
     @classmethod
@@ -86,7 +100,6 @@ class API:
     @classmethod
     def get_requests(cls):
         return [cls.get_request(*req) for req in cls.requests]
-
     ## -- SYNC --
 
     ## -- ASYNC --    
@@ -128,7 +141,7 @@ class API:
     ## -- ASYNC --
 
     @classmethod
-    def get_date_kwarg(cls, date_kwarg: object) -> list:
+    def get_date_kwarg(cls, date_kwarg: object, cumulative: bool=True) -> list:
         if type(date_kwarg) is tuple and len(date_kwarg) == 2:
             start, stop = map(api_lib.get_date, date_kwarg)
         elif date_kwarg is all:
@@ -142,7 +155,11 @@ class API:
         else:
             raise TypeError(f'Especificação de data inválida: `{date_kwarg}`')
         step = datetime.timedelta(days=1)
-        return [date for date in api_lib.arange(start, stop, step)]
+
+        if cumulative:
+            return [(start, date) for date in api_lib.arange(start, stop, step)]
+        else:
+            return [(date, date) for date in api_lib.arange(start, stop, step)]
 
     @classmethod
     def get_state_kwarg(cls, state_kwarg: object) -> list:
@@ -191,45 +208,45 @@ class API:
                 raise ValueError(f'Cidade não cadastrada: `{city_name} ({state})`.')
 
     @classmethod
-    def get_cities(cls, dates: list, cities) -> list:
+    def get_cities(cls, dates: list, cities, cumulative: bool=True) -> list:
         """ Obtém dados a nível municipal
         """
-        meta_data = {}
+        query_data = cls.QUERY_DATA.copy()
         for date in dates:
             for state, city, city_id in cities:
-                meta_data['city_id'] = city_id
-                meta_data['state'] = state
-                yield cls.build_request(meta_data, date, state=state, city=city)
+                query_data['city_id'] = city_id
+                query_data['state'] = state
+                yield cls.build_request(query_data, date, state=state, city=city, cumulative=cumulative)
 
     @classmethod
-    def get_all_cities_in_states(cls, dates, states) -> list:
+    def get_all_cities_in_states(cls, dates, states, cumulative: bool=True) -> list:
         """
         """
-        meta_data = {}      
+        query_data = cls.QUERY_DATA.copy()
         for date in dates:
             for state in states:
-                meta_data['state'] = state
+                query_data['state'] = state
                 for city in cls.STATES[state]:
-                    meta_data['city_id'] = cls.city_id(state, city)
-                    yield cls.build_request(meta_data, date, state=state, city=city)
+                    query_data['city_id'] = cls.city_id(state, city)
+                    yield cls.build_request(query_data, date, state=state, city=city, cumulative=cumulative)
 
     @classmethod
-    def get_states(cls, dates: list, states) -> list:
+    def get_states(cls, dates: list, states, cumulative: bool=True) -> list:
         """ Obtém dados a nível estadual
         """
-        meta_data = {}
+        query_data = cls.QUERY_DATA.copy()
         for date in dates:
             for state in states:
-                meta_data['state'] = state
-                yield cls.build_request(meta_data, date, state=state)
+                query_data['state'] = state
+                yield cls.build_request(query_data, date, state=state, cumulative=cumulative)
         
     @classmethod
-    def get_country(cls, dates: list) -> list:
+    def get_country(cls, dates: list, cumulative: bool=True) -> list:
         """ Obtém dados a nível federal
         """
-        meta_data = {'state' : 'Todos'}
+        query_data = {**cls.QUERY_DATA.copy(), 'state' : 'Todos'}
         for date in dates:
-            yield cls.build_request(meta_data, date)
+            yield cls.build_request(query_data, date, cumulative=cumulative)
         
     @classmethod
     @api_lib.time
@@ -246,6 +263,7 @@ class API:
 
         ## default keyword arguments
         filters = {
+            'cumulative' : True,
             'date' : None,
             'state' : None,
             'city' : None,
@@ -254,26 +272,26 @@ class API:
         filters.update(kwargs)
 
         sync = filters['sync']
-        dates = cls.get_date_kwarg(filters['date'])
+        dates = cls.get_date_kwarg(filters['date'], cumulative=filters['cumulative'])
         
         ## Nível Federal
         if filters['state'] is None and filters['city'] is None:
-            requests = cls.get_country(dates)
+            requests = cls.get_country(dates, cumulative=filters['cumulative'])
         ## Nível Estadual
         elif filters['city'] is None:
             if filters['state'] in {None, all} or type(filters['state']) in {set, str}:
                 states = cls.get_state_kwarg(filters['state'])
-                requests = cls.get_states(dates, states)
+                requests = cls.get_states(dates, states, cumulative=filters['cumulative'])
         ## Nível Municipal
         elif filters['city'] is all and filters['state'] is not None:
             states = cls.get_state_kwarg(filters['state'])
-            requests = cls.get_all_cities_in_states(dates, states)
+            requests = cls.get_all_cities_in_states(dates, states, cumulative=filters['cumulative'])
         elif type(filters['city']) in {set, str} and filters['state'] is None:
             cities = cls.get_city_kwarg(filters['city'])
-            requests = cls.get_cities(dates, cities)
+            requests = cls.get_cities(dates, cities, cumulative=filters['cumulative'])
         elif type(filters['city']) in {set, str} and type(filters['state']) is str:
             cities = cls.get_city_kwarg(filters['city'], state_sufix=filters['state'])
-            requests = cls.get_cities(dates, cities)
+            requests = cls.get_cities(dates, cities, cumulative=filters['cumulative'])
         else:
             raise ValueError(f"Especificação inválida de localização: (city={filters['city']!r}, state={filters['state']!r})")
 
@@ -321,3 +339,33 @@ class API:
             for result in results:
                 row = {key : (str(result[key]) if key in result else "") for key in cls.CSV_HEADER}
                 writer.writerow(row)
+
+    @classmethod
+    def union(cls, res: list) -> list:
+        """
+        """
+        states = set([])
+        cities = set([])
+        x = {}
+        for data in res:
+            states.add(data['state'])
+            cities.add(data['city'])
+            date = data['date']
+            if date not in x:
+                x[date] = {cause_key : 0 for cause_key in cls.CAUSE_KEYS}
+            for cause_key in cls.CAUSE_KEYS:
+                x[date][cause_key] += data[cause_key]
+        state = "&".join(states)
+        city = "&".join(cities)
+        results = []
+        for date in x:
+            x[date]['date'] = date
+            x[date]['state'] = state
+            x[date]['city'] = city
+            results.append(x[date])
+        return sorted(results, key=lambda x: x['date'])
+
+
+
+        
+

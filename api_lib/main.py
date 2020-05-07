@@ -11,6 +11,12 @@ import json
 import re
 import csv
 
+def kwget(key, kwargs: dict, default=None):
+    try:
+        return kwargs[key]
+    except KeyError:
+        return default
+
 def arange(start, stop, step):
     while start <= stop:
         yield start
@@ -59,7 +65,7 @@ def encode_url(url: str, data: dict=None) -> str:
     if data is None:
         return url
     else:
-        return urljoin(url, f"?{urlencode(data)}")
+        return urljoin(url, f"?{urlencode(data, True)}")
 
 CITIES_URL = r'https://transparencia.registrocivil.org.br/api/cities'
 CITIES_CSV = r'data/cidades.csv'
