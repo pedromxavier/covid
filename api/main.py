@@ -95,19 +95,19 @@ class API:
 
     ## -- SYNC --
     @classmethod
-    def get_request(cls, url, data):
+    def __get_request(cls, url, data):
         ans_data = cls.extract_chart(api_lib.get_request(url)['chart'])
         cls.progress()
         return {**data, **ans_data}
 
     @classmethod
-    def get_requests(cls):
-        return [cls.get_request(*req) for req in cls.requests]
+    def __get_requests(cls):
+        return [cls.__get_request(*req) for req in cls.requests]
     ## -- SYNC --
 
     ## -- ASYNC --    
     @classmethod
-    async def async_get_request(cls, url: str, data: dict, session):
+    async def __async_get_request(cls, url: str, data: dict, session):
         async with session.get(url) as ans:
             attempts = 1
             while ans.status in {502, 504} and attempts <= 5:
@@ -124,10 +124,10 @@ class API:
     @classmethod
     async def async_sem_request(cls, url: str, data: dict, session, sem=None):
         if sem is None:
-            return await cls.async_get_request(url, data, session)
+            return await cls.__async_get_request(url, data, session)
         else:
             async with sem:
-                return await cls.async_get_request(url, data, session)
+                return await cls.__async_get_request(url, data, session)
 
     @classmethod
     async def async_run(cls):
@@ -137,14 +137,14 @@ class API:
             cls.results.extend(await asyncio.gather(*tasks))
 
     @classmethod
-    def async_get_requests(cls):
+    def __async_get_requests(cls):
         cls.loop = asyncio.get_event_loop()
         cls.loop.run_until_complete(asyncio.ensure_future(cls.async_run()))
 
     ## -- ASYNC --
 
     @classmethod
-    def get_date_kwarg(cls, date_kwarg: object, cumulative: bool=True) -> list:
+    def __get_date_kwarg(cls, date_kwarg: object, cumulative: bool=True) -> list:
         if type(date_kwarg) is tuple and len(date_kwarg) == 2:
             start, stop = map(api_lib.get_date, date_kwarg)
         elif date_kwarg is all:
@@ -165,7 +165,7 @@ class API:
             return [(date, date) for date in api_lib.arange(start, stop, step)]
 
     @classmethod
-    def get_state_kwarg(cls, state_kwarg: object) -> list:
+    def __get_state_kwarg(cls, state_kwarg: object) -> list:
         if type(state_kwarg) is str:
             if state_kwarg in cls.STATES:
                 return [state_kwarg]
@@ -174,12 +174,12 @@ class API:
         elif state_kwarg is all:
             return list(cls.STATES.keys())
         elif type(state_kwarg) is set:
-            return sum([cls.get_state_kwarg(x) for x in state_kwarg], [])
+            return sum([cls.__get_state_kwarg(x) for x in state_kwarg], [])
         else:
             raise ValueError(f'Especificação de estado inválida: `{state_kwarg}`.')
 
     @classmethod
-    def get_city_kwarg(cls, city_kwarg: object, state_sufix: str=None) -> list:
+    def __get_city_kwarg(cls, city_kwarg: object, state_sufix: str=None) -> list:
         if type(city_kwarg) is str:
             if state_sufix is not None:
                 city_kwarg = f'{city_kwarg}-{state_sufix}'
@@ -193,7 +193,7 @@ class API:
                     cities.append((state, city, cls.city_id(state, city)))
             return cities
         elif type(city_kwarg) is set:
-            return sum([cls.get_city_kwarg(x, state_sufix=state_sufix) for x in city_kwarg], [])
+            return sum([cls.__get_city_kwarg(x, state_sufix=state_sufix) for x in city_kwarg], [])
         else:
             raise ValueError(f'Especificação de cidade inválida: {city}.\nO formato correto é `Nome da Cidade-UF`')
 
@@ -211,7 +211,7 @@ class API:
                 raise ValueError(f'Cidade não cadastrada: `{city_name} ({state})`.')
 
     @classmethod
-    def get_cities(cls, dates: list, cities, cumulative: bool=True) -> list:
+    def __get_cities(cls, dates: list, cities, cumulative: bool=True) -> list:
         """ Obtém dados a nível municipal
         """
         query_data = cls.QUERY_DATA.copy()
@@ -222,7 +222,7 @@ class API:
                 yield cls.build_request(query_data, date, state=state, city=city, cumulative=cumulative)
 
     @classmethod
-    def get_all_cities_in_states(cls, dates, states, cumulative: bool=True) -> list:
+    def __get_all_cities_in_states(cls, dates, states, cumulative: bool=True) -> list:
         """
         """
         query_data = cls.QUERY_DATA.copy()
@@ -234,7 +234,7 @@ class API:
                     yield cls.build_request(query_data, date, state=state, city=city, cumulative=cumulative)
 
     @classmethod
-    def get_states(cls, dates: list, states, cumulative: bool=True) -> list:
+    def __get_states(cls, dates: list, states, cumulative: bool=True) -> list:
         """ Obtém dados a nível estadual
         """
         query_data = cls.QUERY_DATA.copy()
@@ -244,7 +244,7 @@ class API:
                 yield cls.build_request(query_data, date, state=state, cumulative=cumulative)
         
     @classmethod
-    def get_country(cls, dates: list, cumulative: bool=True) -> list:
+    def __get_country(cls, dates: list, cumulative: bool=True) -> list:
         """ Obtém dados a nível federal
         """
         query_data = {**cls.QUERY_DATA.copy(), 'state' : 'Todos'}
@@ -275,26 +275,26 @@ class API:
         filters.update(kwargs)
 
         sync = filters['sync']
-        dates = cls.get_date_kwarg(filters['date'], cumulative=filters['cumulative'])
+        dates = cls.__get_date_kwarg(filters['date'], cumulative=filters['cumulative'])
         
         ## Nível Federal
         if filters['state'] is None and filters['city'] is None:
-            requests = cls.get_country(dates, cumulative=filters['cumulative'])
+            requests = cls.__get_country(dates, cumulative=filters['cumulative'])
         ## Nível Estadual
         elif filters['city'] is None:
             if filters['state'] in {None, all} or type(filters['state']) in {set, str}:
-                states = cls.get_state_kwarg(filters['state'])
-                requests = cls.get_states(dates, states, cumulative=filters['cumulative'])
+                states = cls.__get_state_kwarg(filters['state'])
+                requests = cls.__get_states(dates, states, cumulative=filters['cumulative'])
         ## Nível Municipal
         elif filters['city'] is all and filters['state'] is not None:
-            states = cls.get_state_kwarg(filters['state'])
-            requests = cls.get_all_cities_in_states(dates, states, cumulative=filters['cumulative'])
+            states = cls.__get_state_kwarg(filters['state'])
+            requests = cls.__get_all_cities_in_states(dates, states, cumulative=filters['cumulative'])
         elif type(filters['city']) in {set, str} and filters['state'] is None:
-            cities = cls.get_city_kwarg(filters['city'])
-            requests = cls.get_cities(dates, cities, cumulative=filters['cumulative'])
+            cities = cls.__get_city_kwarg(filters['city'])
+            requests = cls.__get_cities(dates, cities, cumulative=filters['cumulative'])
         elif type(filters['city']) in {set, str} and type(filters['state']) is str:
-            cities = cls.get_city_kwarg(filters['city'], state_sufix=filters['state'])
-            requests = cls.get_cities(dates, cities, cumulative=filters['cumulative'])
+            cities = cls.__get_city_kwarg(filters['city'], state_sufix=filters['state'])
+            requests = cls.__get_cities(dates, cities, cumulative=filters['cumulative'])
         else:
             raise ValueError(f"Especificação inválida de localização: (city={filters['city']!r}, state={filters['state']!r})")
 
@@ -305,10 +305,10 @@ class API:
         print(f'Total de requisições: {cls.total}')
         
         if sync:
-            cls.get_requests()
+            cls.__get_requests()
         else:
             try:
-                cls.async_get_requests()
+                cls.__async_get_requests()
             except NameError:
                 if not ASYNC_LIB:
                     raise ImportError('Falha ao importar bilioteca `aiohttp`. Requisições assíncronas indisponíveis.')
