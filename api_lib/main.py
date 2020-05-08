@@ -96,12 +96,13 @@ def load_cities() -> (dict, dict):
     with open(CITIES_CSV, encoding='utf-8') as file:
         reader = csv.reader(file)
         for row in reader:
-            state, city, city_id = row
+            state, city_name, city_id = row
+            ascii_city_name = ascii_decode(city_name)
             if state in states:
-                states[state].append(ascii_decode(city))
+                states[state].append(ascii_city_name)
             else:
-                states[state] = [ascii_decode(city)]
-            id_table[(state, city)] = city_id
+                states[state] = [ascii_city_name]
+            id_table[(state, ascii_city_name)] = city_id
     return states, id_table
 
 def update_cities():
@@ -141,10 +142,10 @@ def time(callback):
     return new_callback
 
 ASCII_DECODE = {
-    'à': 'a', 'á': 'a', 'À': 'A', 'Á': 'A',
-    'é': 'e', 'É': 'E',
+    'à': 'a', 'á': 'a', 'À': 'A', 'Á': 'A', 'ã': 'a', 'Ã': 'A', 'â': 'A', 'Â': 'A',
+    'é': 'e', 'É': 'E', 'ê': 'e', 'Ê': 'E',
     'í': 'i', 'Í': 'I',
-    'ó': 'o', 'Ó': 'O',
+    'ó': 'o', 'Ó': 'O', 'õ': 'o', 'Õ': 'O', 'ô': 'o', 'Ô': 'O',
     'ú': 'u', 'Ú': 'U',
     'ç': 'c', 'Ç': 'C',
 }

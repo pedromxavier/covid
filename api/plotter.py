@@ -31,10 +31,8 @@ class Plotter:
         'INSUFICIENCIA_RESPIRATORIA',
     }
 
-    CAUSE_YEAR = [f'{cause}_{year}' for cause, year in API.CAUSE_YEAR]
-
-    w = 8.0 #in
-    h = 5.0 #in
+    w = 8.0 #inches
+    h = 5.0 #inches
 
     def __init__(self, fname:str):
         self.fname = fname
@@ -67,8 +65,8 @@ class Plotter:
 
     def plot_all(self, **kwargs):
         fig, ax = plt.subplots()
-        for cause_year in self.CAUSE_YEAR:
-            ax.plot(self.x, self.set_nan(self.y[cause_year]), label=cause_year)
+        for key in API.CAUSE_KEYS:
+            ax.plot(self.x, self.set_nan(self.y[key]), label=key)
         plt.legend()
         fig.set_size_inches(self.w, self.h)
         self.plot(**kwargs)
@@ -105,18 +103,16 @@ class Plotter:
             reader = csv.reader(file)
             header = next(reader)
             table = {header[i] : i for i in range(len(header))}
+            
             x = []
-            y = {}
-            row = next(reader)
-            for cause in cls.CAUSE_YEAR:
-                y[cause] = [int(row[table[cause]])]
+            y = {cause: [] for cause in API.CAUSE_KEYS}
             
             for row in reader:
                 x.append(datetime.date.fromisoformat(row[table['date']]))
-                for cause in cls.CAUSE_YEAR:
+                for cause in API.CAUSE_KEYS:
                     y[cause].append(int(row[table[cause]]))
                         
-            for cause in cls.CAUSE_YEAR:
+            for cause in API.CAUSE_KEYS:
                 ## Adjust size
                 while len(y[cause]) < len(x):
                     y[cause].append(0)
@@ -127,3 +123,7 @@ class Plotter:
                 else:
                     y[cause] = np.array(y[cause], dtype=np.float64)
         return x, y
+
+    @classmethod
+    def parse_res(cls, res: list):
+        raise NotImplementedError
