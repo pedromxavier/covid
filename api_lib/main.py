@@ -22,7 +22,6 @@ def check_kwargs(keys:set, kwargs: dict):
         if key not in keys:
             raise ValueError(f'Parâmetro inválido: `{key}`. As opções válidas são {" - ".join(keys)}')
 
-
 def arange(start, stop, step):
     while start <= stop:
         yield start
@@ -99,9 +98,9 @@ def load_cities() -> (dict, dict):
         for row in reader:
             state, city, city_id = row
             if state in states:
-                states[state].append(city)
+                states[state].append(ascii_decode(city))
             else:
-                states[state] = [city]
+                states[state] = [ascii_decode(city)]
             id_table[(state, city)] = city_id
     return states, id_table
 
@@ -141,4 +140,18 @@ def time(callback):
         return x
     return new_callback
 
-        
+ASCII_DECODE = {
+    'à': 'a', 'á': 'a', 'À': 'A', 'Á': 'A',
+    'é': 'e', 'É': 'E',
+    'í': 'i', 'Í': 'I',
+    'ó': 'o', 'Ó': 'O',
+    'ú': 'u', 'Ú': 'U',
+    'ç': 'c', 'Ç': 'C',
+}
+
+ASCII_PATTERN = '|'.join(re.escape(key) for key in ASCII_DECODE)
+
+ASCII_REGEX = re.compile(ASCII_PATTERN, flags=re.IGNORECASE)
+
+def ascii_decode(s: str):
+    return ASCII_REGEX.sub(lambda match: ASCII_DECODE.get(match.group(0)), s)

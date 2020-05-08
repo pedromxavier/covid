@@ -78,7 +78,7 @@ class API:
     @classmethod
     def pbar(cls, x: float):
         if x < 1:
-            return f"[{int(x * 16 - 1) * '='}>{int((1-x) * 16) * ' '}]"
+            return f"[{int(x * 16) * '='}>{int((1-x) * 16) * ' '}]"
         else:
             return f"[{'=' * 16}]"
 
@@ -108,12 +108,8 @@ class API:
     ## -- ASYNC --    
     @classmethod
     async def __async_get_request(cls, url: str, data: dict, session):
-        async with session.get(url) as ans:
-            attempts = 1
-            while ans.status in {502, 504} and attempts <= 5:
-                await asyncio.sleep(1)
-                attempts += 1
-            else:
+        async with cls.semaphore:
+            async with session.get(url) as ans:
                 try:
                     ans_data = cls.extract_chart((await ans.json())['chart'])
                     cls.progress()
@@ -122,24 +118,16 @@ class API:
                     raise Exception(f'Code {ans.status} in GET {url}')
 
     @classmethod
-    async def async_sem_request(cls, url: str, data: dict, session, sem=None):
-        if sem is None:
-            return await cls.__async_get_request(url, data, session)
-        else:
-            async with sem:
-                return await cls.__async_get_request(url, data, session)
-
-    @classmethod
-    async def async_run(cls):
-        sem = asyncio.Semaphore(1024)
+    async def __async_run(cls):
+        cls.semaphore = asyncio.Semaphore(1024)
         async with aiohttp.ClientSession() as session:
-            tasks = [asyncio.ensure_future(cls.async_sem_request(*req, session, sem)) for req in cls.requests]
+            tasks = [asyncio.ensure_future(cls.__async_get_request(*req, session)) for req in cls.requests]
             cls.results.extend(await asyncio.gather(*tasks))
 
     @classmethod
     def __async_get_requests(cls):
         cls.loop = asyncio.get_event_loop()
-        cls.loop.run_until_complete(asyncio.ensure_future(cls.async_run()))
+        cls.loop.run_until_complete(asyncio.ensure_future(cls.__async_run()))
 
     ## -- ASYNC --
 
@@ -199,14 +187,15 @@ class API:
 
     @classmethod
     def city_id(cls, state: str, city_name: str):
+        ascii_city_name = api_lib.ascii_decode(city_name)
         try:
-            return cls.ID_TABLE[(state, city_name)]
+            return cls.ID_TABLE[(state, ascii_city_name)]
         except KeyError:
             if not cls.UPDATED_CITIES:
                 api_lib.update_cities()
                 cls.STATES, cls.ID_TABLE = api_lib.load_cities()
                 cls.UPDATED_CITIES = True
-                return cls.city_id(state, city_name)
+                return cls.city_id(state, ascii_city_name)
             else:
                 raise ValueError(f'Cidade não cadastrada: `{city_name} ({state})`.')
 

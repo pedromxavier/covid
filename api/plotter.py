@@ -1,8 +1,13 @@
-import matplotlib.pyplot as plt
+## Standard Library
 import csv
-import numpy as np
 import datetime
 
+## Third-Party
+import seaborn as sns
+import matplotlib.pyplot as plt
+import numpy as np
+
+## Local
 from api import API
 import api_lib
 
@@ -35,6 +40,12 @@ class Plotter:
         self.fname = fname
         self.x, self.y = self.parse_csv(self.fname) 
 
+    @staticmethod
+    def set_nan(x: np.ndarray):
+        z = np.copy(x)
+        z[z == 0.0] = np.nan
+        return z
+
     def year_diff(self, cause):
         assert cause != 'COVID'
         return self.y[f'{cause}_2020'] - self.y[f'{cause}_2019']
@@ -44,8 +55,8 @@ class Plotter:
 
         y = sum(self.year_diff(cause) for cause in self.RESPIRATORY)
 
-        ax.bar(self.x, self.y['COVID_2020'], width=0.8, label='COVID 2020')
-        ax.bar(self.x, y, width=0.8, label='DOENÇAS RESPITÓRIAS 2020 - 2019')
+        ax.bar(self.x, self.set_nan(self.y['COVID_2020']), width=0.8, label='COVID 2020')
+        ax.bar(self.x, self.set_nan(y), width=0.8, label='DOENÇAS RESPITÓRIAS 2020 - 2019')
 
         plt.legend()
         plt.title('Aumento das doenças respitatórias vs. COVID')
@@ -57,38 +68,18 @@ class Plotter:
     def plot_all(self, **kwargs):
         fig, ax = plt.subplots()
         for cause_year in self.CAUSE_YEAR:
-            ax.plot(self.x, self.y[cause_year], label=cause_year)
+            ax.plot(self.x, self.set_nan(self.y[cause_year]), label=cause_year)
         plt.legend()
         fig.set_size_inches(self.w, self.h)
         self.plot(**kwargs)
-
-    def compare_cities(self, *cities, **kwargs):
-        ...
-
-    def compare_causes(self, *causes, **kwargs):
-        ...
-
-    def compare_years(self, *causes, **kwargs):
-        n = len(causes)
-        ncols = min(self, self.MAX_COLS, n)
-        nrows = (n//ncols)
-        fig, axs = plt.subplots((n//ncols), ncols)
-        for i in range(nrows):
-            for j in range(ncols):
-                cause = causes[i*nrows + j]
-                axs[i, j].plot(self.x, np.cumsum(self.y[cause]))
-
-        fig.set_size_inches(self.w, self.h)
-
-        self.plot(**kwargs)
-
+        
     def plot(self, **kwargs):
         ## Get fname kwarg
         fname = api_lib.kwget('save', kwargs)
         title = api_lib.kwget('title', kwargs, '')
 
         ## Corrige o nome do arquivo
-        if not fname.endswith('.png'):
+        if fname is not None and not fname.endswith('.png'):
             fname = f'{fname}.png'
 
         ## Adiciona Título ao plot.
@@ -135,9 +126,4 @@ class Plotter:
                     y[cause] = np.cumsum(y[cause], dtype=np.float64)
                 else:
                     y[cause] = np.array(y[cause], dtype=np.float64)
-                y[cause][y[cause] == 0] = np.nan
         return x, y
-
-if __name__ == '__main__':
-    plot = Plotter('RJ')
-    plot.diff_covid_resp(title='Estado do Rio de Janeiro')
