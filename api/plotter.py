@@ -103,6 +103,8 @@ class Plotter:
             reader = csv.reader(file)
             header = next(reader)
             table = {header[i] : i for i in range(len(header))}
+
+            print(table)
             
             x = []
             y = {cause: [] for cause in API.CAUSE_KEYS}

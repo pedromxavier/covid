@@ -325,7 +325,7 @@ class API:
         if not fname.endswith('.csv'):
             fname = f'{fname}.csv'
 
-        with open(fname, 'w') as file:
+        with open(fname, 'w', newline='') as file:
             writer = csv.DictWriter(file, fieldnames=cls.CSV_HEADER)
             writer.writeheader()
             for result in results:
