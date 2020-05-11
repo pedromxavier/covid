@@ -68,21 +68,6 @@ class API:
     }
 
     @classmethod
-    def progress(cls):
-        with cls.lock:
-            cls.done += 1
-            end = "\r" if cls.done < cls.total else "\n"
-            x = cls.done/cls.total
-            print(f'Progresso: {cls.pbar(x)} {cls.done}/{cls.total} {100 * x:.2f}%      ', end=end)
-            
-    @classmethod
-    def pbar(cls, x: float):
-        if x < 1:
-            return f"[{int(x * 16) * '='}>{int((1-x) * 16) * ' '}]"
-        else:
-            return f"[{'=' * 16}]"
-
-    @classmethod
     def extract_chart(cls, chart: dict):
         return {f'{cause}_{year}' : chart[year][cause] for cause, year in cls.CAUSE_YEAR}
 
@@ -97,7 +82,7 @@ class API:
     @classmethod
     def __get_request(cls, url, data):
         ans_data = cls.extract_chart(api_lib.get_request(url)['chart'])
-        cls.progress()
+        next(cls.progress)
         return {**data, **ans_data}
 
     @classmethod
@@ -112,7 +97,7 @@ class API:
             async with session.get(url) as ans:
                 try:
                     ans_data = cls.extract_chart((await ans.json())['chart'])
-                    cls.progress()
+                    next(cls.progress)
                     return {**data, **ans_data}
                 except:
                     raise Exception(f'Code {ans.status} in GET {url}')
@@ -291,6 +276,8 @@ class API:
         cls.total = len(cls.requests)
 
         print(f'Total de requisições: {cls.total}')
+
+        cls.progress = api_lib.progress(cls.total)
         
         if kwargs['sync']:
             cls.__get_requests()

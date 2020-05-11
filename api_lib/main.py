@@ -7,6 +7,7 @@ from functools import wraps
 import warnings
 import hashlib
 import datetime
+import threading
 import json
 import re
 import csv
@@ -150,5 +151,37 @@ ASCII_PATTERN = '|'.join(re.escape(key) for key in ASCII_DECODE)
 
 ASCII_REGEX = re.compile(ASCII_PATTERN, flags=re.IGNORECASE)
 
-def ascii_decode(s: str):
+def ascii_decode(s: str) -> str:
     return ASCII_REGEX.sub(lambda match: ASCII_DECODE.get(match.group(0)), s)
+
+def _progress(total: int):
+    """
+    """
+    ## Lock done variable
+    lock = threading.Lock()
+    done = 0
+
+    ## ETA
+    start_time = clock()
+    total_time = clock() - start_time
+    
+    while done <= total:
+        with lock: done += 1
+        total_time = clock() - start_time
+        eta = (total_time / done) * (total - done)
+        end = '\r' if done < total else '\n'
+        x = done / total
+        print(f'Progresso: {progress_bar(x)} {done}/{total} {100 * x:2.2f}% eta: {eta:.1f}s     ', end=end)
+        yield
+
+def progress(total: int):
+    print(f'Progresso: {progress_bar(0.0)} 0/{total}  0.00% eta: ?s', end='\r')
+    return _progress(total)
+
+def progress_bar(x: float):
+    if x == 0.0:
+        return f"[{' ' * 16}]"
+    elif x < 1:
+        return f"[{int(x * 16) * '='}>{int((1-x) * 16) * ' '}]"
+    else:
+        return f"[{'=' * 16}]"
