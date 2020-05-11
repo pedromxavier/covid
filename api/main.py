@@ -254,38 +254,37 @@ class API:
         del cls.requests[:]
 
         ## default keyword arguments
-        filters = {
+        api_lib.kwget(kwargs, {
             'cumulative' : True,
             'date' : None,
             'state' : None,
             'city' : None,
             'sync' : not ASYNC_LIB,
-        }
-        filters.update(kwargs)
+        })
 
-        sync = filters['sync']
-        dates = cls.__get_date_kwarg(filters['date'], cumulative=filters['cumulative'])
+        sync = kwargs['sync']
+        dates = cls.__get_date_kwarg(kwargs['date'], cumulative=kwargs['cumulative'])
         
         ## Nível Federal
-        if filters['state'] is None and filters['city'] is None:
-            requests = cls.__get_country(dates, cumulative=filters['cumulative'])
+        if kwargs['state'] is None and kwargs['city'] is None:
+            requests = cls.__get_country(dates, cumulative=kwargs['cumulative'])
         ## Nível Estadual
-        elif filters['city'] is None:
-            if filters['state'] in {None, all} or type(filters['state']) in {set, str}:
-                states = cls.__get_state_kwarg(filters['state'])
-                requests = cls.__get_states(dates, states, cumulative=filters['cumulative'])
+        elif kwargs['city'] is None:
+            if kwargs['state'] in {None, all} or type(kwargs['state']) in {set, str}:
+                states = cls.__get_state_kwarg(kwargs['state'])
+                requests = cls.__get_states(dates, states, cumulative=kwargs['cumulative'])
         ## Nível Municipal
-        elif filters['city'] is all and filters['state'] is not None:
-            states = cls.__get_state_kwarg(filters['state'])
-            requests = cls.__get_all_cities_in_states(dates, states, cumulative=filters['cumulative'])
-        elif type(filters['city']) in {set, str} and filters['state'] is None:
-            cities = cls.__get_city_kwarg(filters['city'])
-            requests = cls.__get_cities(dates, cities, cumulative=filters['cumulative'])
-        elif type(filters['city']) in {set, str} and type(filters['state']) is str:
-            cities = cls.__get_city_kwarg(filters['city'], state_sufix=filters['state'])
-            requests = cls.__get_cities(dates, cities, cumulative=filters['cumulative'])
+        elif kwargs['city'] is all and kwargs['state'] is not None:
+            states = cls.__get_state_kwarg(kwargs['state'])
+            requests = cls.__get_all_cities_in_states(dates, states, cumulative=kwargs['cumulative'])
+        elif type(kwargs['city']) in {set, str} and kwargs['state'] is None:
+            cities = cls.__get_city_kwarg(kwargs['city'])
+            requests = cls.__get_cities(dates, cities, cumulative=kwargs['cumulative'])
+        elif type(kwargs['city']) in {set, str} and type(kwargs['state']) is str:
+            cities = cls.__get_city_kwarg(kwargs['city'], state_sufix=kwargs['state'])
+            requests = cls.__get_cities(dates, cities, cumulative=kwargs['cumulative'])
         else:
-            raise ValueError(f"Especificação inválida de localização: (city={filters['city']!r}, state={filters['state']!r})")
+            raise ValueError(f"Especificação inválida de localização: (city={kwargs['city']!r}, state={kwargs['state']!r})")
 
         cls.requests.extend(requests)
 
@@ -336,7 +335,9 @@ class API:
     def union(cls, res: list, **kwargs) -> list:
         """
         """
-        region = api_lib.kwget('region', kwargs, '')
+        api_lib.kwget(kwargs, {
+            'region': ''
+        })
         union_data = {}
         for data in res:
             date = data['date']
@@ -347,7 +348,7 @@ class API:
         results = []
         for date in union_data:
             union_data[date]['date'] = date
-            union_data[date]['region'] = region
+            union_data[date]['region'] = kwargs['region']
             results.append(union_data[date])
         return sorted(results, key=lambda x: x['date'])
 

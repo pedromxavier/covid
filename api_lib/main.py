@@ -11,16 +11,12 @@ import json
 import re
 import csv
 
-def kwget(key, kwargs: dict, default=None):
-    try:
-        return kwargs[key]
-    except KeyError:
-        return default
-
-def check_kwargs(keys:set, kwargs: dict):
+def kwget(kwargs: dict, default: dict):
     for key in kwargs:
-        if key not in keys:
-            raise ValueError(f'Parâmetro inválido: `{key}`. As opções válidas são {" - ".join(keys)}')
+        if key not in default:
+            raise ValueError(f'Parâmetro inválido: {key}.\nAs opções válidas são: {" - ".join(default)}')
+    else:
+        kwargs.update(default)    
 
 def arange(start, stop, step):
     while start <= stop:

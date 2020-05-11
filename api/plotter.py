@@ -31,12 +31,24 @@ class Plotter:
         'INSUFICIENCIA_RESPIRATORIA',
     }
 
-    w = 8.0 #inches
-    h = 5.0 #inches
+    def __init__(self, **kwargs):
+        api_lib.kwget(kwargs, {
+            'csv': None,
+            'res': None,
+            'w': 8.0, #inches
+            'h': 5.0, #inches
+        })
 
-    def __init__(self, fname:str):
-        self.fname = fname
-        self.x, self.y = self.parse_csv(self.fname) 
+        if kwargs['csv'] is not None and kwargs['res'] is not None:
+            raise ValueError('Especifique apenas uma forma de entrada (csv ou res).')
+        elif kwargs['csv'] is not None:
+            self.x, self.y = self.parse_csv(kwargs['csv'])
+        elif kwargs['res'] is not None:
+            self.x, self.y = self.parse_res(kwargs['res'])
+        else:
+            raise ValueError('É preciso especificar um arquivo .csv ou uma lista de resultados da API.')
+
+        self.w, self.h = kwargs['w'], kwargs['h']
 
     @staticmethod
     def set_nan(x: np.ndarray):
@@ -54,47 +66,56 @@ class Plotter:
         y = sum(self.year_diff(cause) for cause in self.RESPIRATORY)
 
         ax.bar(self.x, self.set_nan(self.y['COVID_2020']), width=0.8, label='COVID 2020')
-        ax.bar(self.x, self.set_nan(y), width=0.8, label='DOENÇAS RESPITÓRIAS 2020 - 2019')
+        ax.bar(self.x, self.set_nan(y), width=0.8, label='DOENÇAS RESPITÓRIAS 2020-2019')
 
         plt.legend()
         plt.title('Aumento das doenças respitatórias vs. COVID')
-
-        fig.set_size_inches(self.w, self.h)
-
-        self.plot(**kwargs)
+        self.plot(fig, ax, **kwargs)
 
     def plot_all(self, **kwargs):
+        """
+        """
         fig, ax = plt.subplots()
         for key in API.CAUSE_KEYS:
             ax.plot(self.x, self.set_nan(self.y[key]), label=key)
         plt.legend()
-        fig.set_size_inches(self.w, self.h)
-        self.plot(**kwargs)
+        self.plot(fig, ax, **kwargs)
         
-    def plot(self, **kwargs):
+    def plot(self, fig=None, ax=None, **kwargs):
+        """
+        """
         ## Get fname kwarg
-        fname = api_lib.kwget('save', kwargs)
-        title = api_lib.kwget('title', kwargs, '')
+        api_lib.kwget(kwargs, {
+            'fname': None,
+            'title': '',
+        })
+
+        ## Adjust figure size
+        if fig is not None: fig.set_size_inches(self.w, self.h)
 
         ## Corrige o nome do arquivo
-        if fname is not None and not fname.endswith('.png'):
-            fname = f'{fname}.png'
+        if kwargs['fname'] is not None and not kwargs['fname'].endswith('.png'):
+            kwargs['fname'] = f"{kwargs['fname']}.png"
 
         ## Adiciona Título ao plot.
-        plt.title(title)
+        if kwargs['title']: plt.title(kwargs['title'])
 
         ## Rotaciona as datas no eixo x.
         plt.xticks(rotation=70)
 
         ## Output
-        if fname is None:
+        if kwargs['fname'] is None:
             plt.show()
         else:
-            plt.savefig(fname)
+            plt.savefig(kwargs['fname'])
 
     @classmethod
     def parse_csv(cls, fname: str, **kwargs) -> (list, dict):
-        accumulate = api_lib.kwget('accumulate', kwargs, False)
+        """
+        """
+        api_lib.kwget(kwargs, {
+            'cumulative': False,
+        })
 
         if not fname.endswith('.csv'):
             fname = f'{fname}.csv'
@@ -104,8 +125,6 @@ class Plotter:
             header = next(reader)
             table = {header[i] : i for i in range(len(header))}
 
-            print(table)
-            
             x = []
             y = {cause: [] for cause in API.CAUSE_KEYS}
             
@@ -120,12 +139,36 @@ class Plotter:
                     y[cause].append(0)
                 while len(y[cause]) > len(x):
                     y[cause].pop(-1)
-                if accumulate:
+                if kwargs['cumulative']:
                     y[cause] = np.cumsum(y[cause], dtype=np.float64)
                 else:
                     y[cause] = np.array(y[cause], dtype=np.float64)
         return x, y
 
     @classmethod
-    def parse_res(cls, res: list):
-        raise NotImplementedError
+    def parse_res(cls, res: list, **kwargs) -> (list, dict):
+        """
+        """
+        api_lib.kwget(kwargs, {
+            'cumulative': False,
+        })
+
+        x = []
+        y = {cause: [] for cause in API.CAUSE_KEYS}
+
+        for data in res:
+            x.append(data['date'])
+            for cause in API.CAUSE_KEYS:
+                y[cause].append(data[cause])
+        
+        for cause in API.CAUSE_KEYS:
+            ## Adjust size
+                while len(y[cause]) < len(x):
+                    y[cause].append(0)
+                while len(y[cause]) > len(x):
+                    y[cause].pop(-1)
+                if kwargs['cumulative']:
+                    y[cause] = np.cumsum(y[cause], dtype=np.float64)
+                else:
+                    y[cause] = np.array(y[cause], dtype=np.float64)
+        return x, y
