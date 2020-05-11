@@ -144,7 +144,8 @@ class API:
         elif type(date_kwarg) is datetime.date or type(datetime) is str:
             start = stop = api_lib.get_date(date_kwarg)
         else:
-            raise TypeError(f'Especificação de data inválida: `{date_kwarg}`')
+            raise TypeError(f'Especificação de data inválida: {date_kwarg}')
+
         step = datetime.timedelta(days=1)
 
         if cumulative:
@@ -262,7 +263,6 @@ class API:
             'sync' : not ASYNC_LIB,
         })
 
-        sync = kwargs['sync']
         dates = cls.__get_date_kwarg(kwargs['date'], cumulative=kwargs['cumulative'])
         
         ## Nível Federal
@@ -292,7 +292,7 @@ class API:
 
         print(f'Total de requisições: {cls.total}')
         
-        if sync:
+        if kwargs['sync']:
             cls.__get_requests()
         else:
             try:

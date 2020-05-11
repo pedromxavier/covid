@@ -16,7 +16,7 @@ def kwget(kwargs: dict, default: dict):
         if key not in default:
             raise ValueError(f'Parâmetro inválido: {key}.\nAs opções válidas são: {" - ".join(default)}')
     else:
-        kwargs.update(default)    
+        kwargs.update({key: default[key] for key in default if key not in kwargs})
 
 def arange(start, stop, step):
     while start <= stop:
