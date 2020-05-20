@@ -1,4 +1,4 @@
-from urllib.request import urlopen
+from urllib.request import urlopen, Request
 from urllib.parse import urlencode, urljoin
 from urllib.error import HTTPError, URLError
 from time import perf_counter as clock
@@ -30,7 +30,7 @@ def fetch_data(api_url: str, data: dict=None) -> (object):
     """
     url = encode_url(api_url, data)
     try:
-        return get_request(url)
+        return get_request_json(url)
     except HTTPError:
         raise RuntimeError(f"500: Internal Server Error\n@ GET {url}")
     except URLError:
@@ -43,16 +43,28 @@ def fetch_data_hash(api_url: str, data: dict=None) -> (object, bytes):
     url = encode_url(api_url, data)
     try:
         return get_request_hash(url)
-    except HTTPError:
-        raise RuntimeError(f"500: Internal Server Error\n@ GET {url}")
+    except HTTPError as error:
+        raise RuntimeError(f"{error.code}: Internal Server Error\n@ GET {url}")
     except URLError:
         raise RuntimeError("Desconectado da Internet. Operação Cancelada.")
 
-def get_request(url: str) -> (object):
-    ## Read answer from API
-    ans = urlopen(url).read()
+def get_request_json(url: str, **kwargs) -> (object):
     ## Decode JSON into Python dict
-    return json.loads(ans.decode('utf-8'))
+    return json.loads(get_request(url, **kwargs))
+
+def get_request(url: str, **kwargs) -> str:
+    ## Read answer from request
+    return urlopen(url, **kwargs).read().decode('utf-8')
+
+def request(url: str, **kwargs):
+    """ request(url: str, **kwargs) -> response, request
+    """
+    try:
+        req = Request(url, **kwargs)
+        ans = urlopen(req)
+    except HTTPError as http_error:
+        raise RuntimeError(f"Code {http_error.code}: in GET {url}")
+    return ans, req
 
 def get_request_hash(url: str) -> (object, bytes):
     ## Read answer from API

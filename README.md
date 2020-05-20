@@ -15,25 +15,8 @@ $ pip -r install requirements.txt
 ```
 **Nota**: necessário para realizar requisições assíncronas.
 
-## Uso
-
-```
-$ python3
->>> from api import API
->>> res = API.get(date=all, state='RJ') # dados a nível estadual para o Rio de Janeiro
-Total de requisições: 126
-Progresso: [===============>] 126/126      
-Tempo: 6.09s
->>> API.to_csv('RJ', res) # gera `RJ.csv`
-Tempo: 0.01s
->>> res = API.get(date=all, state='RJ', city=all) # dados a nível municipal para as cidades do Rio
-Total de requisições: 11718
-Progresso: [===============>] 11718/11718      
-Tempo: 324.16s
->>> API.to_csv('cidades-RJ', res) # gera `cidades-RJ.csv`
-Tempo: 0.15s
-```
-### Parâmetros do método `API.get`
+## Métodos:
+### `API.get(date=None, state=None, city)`
 #### (`cumulative`)
 1. `True`: Retorna o valor acumulado de óbitos, a partir da data inicial.
 2. `False`: Retorna o número de novos óbitos para cada dia.
@@ -78,3 +61,5 @@ As opções para o parâmetro `date` da função `API.get` são:
 | `set`            | `set`         | **Ø**              |
 
 *Nestes casos, aos nomes das cidades é adicionada a sigla da UF após o hífen.
+
+### `API.union`
