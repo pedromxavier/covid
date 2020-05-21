@@ -4,13 +4,19 @@ from urllib.error import HTTPError, URLError
 from time import perf_counter as clock
 from time import sleep
 from functools import wraps
+import platform
 import warnings
 import hashlib
 import datetime
 import threading
+import sys
+import pickle
+import os
 import json
 import re
 import csv
+
+SYSTEM = platform.system()
 
 def kwget(kwargs: dict, default: dict):
     for key in kwargs:
@@ -23,6 +29,14 @@ def arange(start, stop, step):
     while start <= stop:
         yield start
         start += step
+
+def pkload(fname: str):
+    with open(fname, 'rb') as file:
+        return pickle.load(file)
+
+def pkdump(fname: str, obj: object):
+    with open(fname, 'wb') as file:
+        return pickle.dump(obj, file)
 
 def fetch_data(api_url: str, data: dict=None) -> (object):
     """ fetch_data(api_url: str, data: dict=None) -> (object)
@@ -167,9 +181,10 @@ class progress:
 
     STEPS = 20
 
-    def __init__(self, total: int):
+    def __init__(self, total: int, start: int=0):
         ## Total steps
         self.total = total
+        self.start = start
 
         ## Lock for progress track
         self.lock = threading.Lock()
@@ -185,11 +200,11 @@ class progress:
         print(self.string, end=self.end)
 
     def __iter__(self):
-        while self.done < self.total:
+        while (self.start + self.done) < self.total:
             yield next(self)
 
     def __next__(self):
-        if self.done < self.total:
+        if (self.start + self.done) < self.total:
             with self.lock:
                 self.done += 1
             self.total_time = clock() - self.start_time
@@ -200,25 +215,39 @@ class progress:
 
     @property
     def string(self):
-        return f'Progresso: {self.bar} {self.done}/{self.total} {100 * self.ratio:2.2f}% eta: {self.eta}'
+        """ output string;
+        """
+        return f'Progresso: {self.bar} {self.start + self.done}/{self.total} {100 * self.ratio:2.2f}% eta: {self.eta} rate: {self.rate:.2f}/s'
 
     @property
     def padding(self):
+        """ padding needed to erase previous output;
+        """
         return " " * (self.last_length - self.length)
 
     @property
     def length(self):
+        """ output string lenght;
+        """
         return len(self.string)
 
     @property
     def ratio(self) -> float:
-        return self.done / self.total
+        """ progress ratio; value in [0, 1]
+        """
+        return (self.start + self.done) / self.total
+
+    @property
+    def rate(self):
+        """ steps per second;
+        """
+        return self.done / self.total_time
     
     @property
     def eta(self) -> str:
         if not self.done:
             return "?"
-        s = (self.total_time / self.done) * (self.total - self.done)
+        s = (self.total_time / self.done) * (self.total - (self.start + self.done))
         if s >= 60:
             m, s = divmod(s, 60)
             if m >= 60:
@@ -235,7 +264,7 @@ class progress:
 
     @property
     def end(self) -> str:
-        return '\r' if self.done < self.total else '\n'
+        return '\r' if (self.start + self.done) < self.total else '\n'
 
     @property
     def bar(self) -> str:
@@ -249,6 +278,32 @@ class progress:
 def log(callback):
     @wraps(callback)
     def new_callback(self, *args, **kwargs):
-        with open(self.LOG_FNAME) as self.log_file:
+        with open(self.LOG_FNAME, 'w') as self.log_file:
             return callback(self, *args, **kwargs)
     return new_callback
+
+if SYSTEM in {'Linux', 'Darwin'}:
+    SUSPEND = (
+        'systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target',
+        'systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target'
+        )
+    SHELL = 'bash$'
+elif SYSTEM in {'Windows'}:
+    SUSPEND = (
+        'powercfg -x -standby-timeout-ac 0',
+        'powercfg -x -standby-timeout-ac 30'
+    )
+    SHELL = 'cmd>'
+
+def no_suspend(callback):
+    @wraps(callback)
+    def new_callback(*args, **kwargs):
+        try:
+            os.system(SUSPEND[0])
+            print(f'{SHELL} {SUSPEND[0]}')
+            return callback(*args, **kwargs)
+        finally:
+            os.system(SUSPEND[1])
+            print(f'{SHELL} {SUSPEND[1]}')
+    return new_callback
+        

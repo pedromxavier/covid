@@ -6,10 +6,12 @@ from functools import wraps
 import asyncio
 import csv
 import json
+import time
 import datetime
 import itertools
 import threading
 import warnings
+import pickle
 
 ## Third-Party
 try:
@@ -78,6 +80,15 @@ class API:
 
     BLOCK_SIZE = 1024
 
+    WAIT = 10
+
+    class APIResults(object):
+        
+        __slots__ = ('date', 'state', 'city', 'region') + ('COVID','SRAG','PNEUMONIA','INSUFICIENCIA_RESPIRATORIA','SEPTICEMIA','INDETERMINADA','OUTRAS')
+
+        def __init__(self, **kwargs):
+            for name in self.__slots__: setattr(self, name, kwargs[name])
+
     class APIRequest(object):
 
         __slots__ = 'url', 'data', 'success', 'results'
@@ -95,6 +106,9 @@ class API:
             self.results = results
             self.success = True
 
+    class Finish(Exception):
+        pass
+
     def __init__(self, **kwargs):
         """
         """
@@ -105,13 +119,22 @@ class API:
             'state' : None,
             'city' : None,
             'places' : all,
+            'cache': False,
             'sync' : not ASYNC_LIB,
+            'block': self.BLOCK_SIZE
         })
         self.kwargs = kwargs
 
+        ## Request block size
+        self.BLOCK_SIZE = self.kwargs['block']
+
         ## Logging
-        self.log_file = open(self.LOG_FNAME, 'a').close()
+        self.log_file = open(self.LOG_FNAME, 'a')
+        self.log_file.close()
         self.log_lock = threading.Lock()
+
+        ## Cache results
+        self.cache = self.__get_cache_kwarg(kwargs['cache'])
 
         ## Cookies
         self.cookie_jar = CookieJar()
@@ -130,10 +153,29 @@ class API:
 
     @property
     def total(self):
+        if hasattr(self, 'progress') and hasattr(self.progress, 'total'):
+            return self.progress.total
+        else:
+            return self._total
+
+    @property
+    def done(self):
+        if hasattr(self, 'progress') and hasattr(self.progress, 'done'):
+            return self.progress.done
+        else:
+            return self._done
+    
+    @property
+    def _total(self):
         return len(self.requests)
 
+    @property
+    def _done(self):
+        return sum([req.success for req in self.requests])
+
     def log(self, s: str):
-        with self.log_lock: print(s, file=self.log_file)
+        header = f"[{datetime.datetime.now():%Y-%m-%d %H:%M:%S}]"
+        with self.log_lock: print(header, s, file=self.log_file)
     
     def login(self):
         try:
@@ -159,7 +201,7 @@ class API:
     ## -- SYNC --
     def __get_request(self, req: APIRequest):
         try:
-            ans_data = self.extract_chart(api_lib.get_request_json(req.url, headers=self.REQ_HEADERS()))
+            ans_data = self.extract_chart(api_lib.get_request_json(req.url, headers=self.REQUEST_HEADERS))
             req.commit({**req.data, **ans_data})
         except HTTPError as http_error:
             self.log(f'Code {http_error.code} in GET {req.url}\nError: {http_error}\n')
@@ -168,12 +210,10 @@ class API:
         finally:
             next(self.progress)
     
-    def __get_requests(self):
+    def __get_requests(self, requests):
         """
         """
-        for req in self.requests:
-            if not req.success:
-                self.__get_request(req)
+        for req in requests: self.__get_request(req)
     ## -- SYNC --
 
     ## -- ASYNC --
@@ -184,30 +224,31 @@ class API:
             try:
                 response_data = self.extract_chart((await response.json()))
                 req.commit({**req.data, **response_data})
+                next(self.progress)
             except Exception as error:
                 self.log(f'Code {response.status} in GET {req.url}\nError: {error}\n')
+                raise error
             finally:
                 response.close()
-                next(self.progress)
-    
+        
     async def __async_sem_request(self, req: APIRequest, session):
         """
         """
         async with self.semaphore:
             await self.__async_get_request(req, session)
 
-    async def __async_run(self):
+    async def __async_run(self, requests: list):
         """
         """
-        async with aiohttp.ClientSession(timeout=self.timeout, headers=self.REQ_HEADERS()) as session:
-            tasks = [self.__async_get_request(req, session) for req in self.requests if not req.success]
-            await asyncio.wait(tasks)
+        async with aiohttp.ClientSession(timeout=self.timeout, headers=self.REQUEST_HEADERS) as session:
+            tasks = [self.__async_sem_request(req, session) for req in requests]
+            await asyncio.gather(*tasks)
 
-    def __async_get_requests(self):
+    def __async_get_requests(self, requests: list):
         """
         """
         try:
-            self.loop.run_until_complete(self.__async_run())
+            self.loop.run_until_complete(self.__async_run(requests))
         except NameError:
             if not ASYNC_LIB:
                 raise ImportError('Falha ao importar bilioteca `aiohttp`. Requisições assíncronas indisponíveis.')
@@ -233,9 +274,9 @@ class API:
                 else:
                     places.append(place)
             else:
-                return places
+                return sorted(places)
         elif places_kwarg is all:
-            return list(self.PLACES)
+            return sorted(self.PLACES)
         else:
             raise TypeError('Especificação de local deve ser um conjunto (`set`) ou `all`.')
 
@@ -316,44 +357,94 @@ class API:
     def __get_cities(self, dates: list, cities, cumulative: bool=True, places: list=PLACES) -> list:
         """ Obtém dados a nível municipal
         """
-        query_data = {'places[]': places}
+        query_data = {
+            'places[]': places
+            }
+        include = {
+            'cumulative': cumulative,
+            'place': '&'.join(places)
+            }
         for date in dates:
             for state, city, city_id in cities:
                 query_data['city_id'] = city_id
                 query_data['state'] = state
-                yield self.build_request(query_data, date, state=state, city=city, cumulative=cumulative)
+                include['city'] = city
+                include['state'] = state
+                yield self.build_request(query_data, date, **include)
     
     def __get_all_cities_in_states(self, dates, states, cumulative: bool=True, places: list=PLACES) -> list:
         """ Obtém dados a nível municipal
         """
-        query_data = {'places[]': places}
+        query_data = {
+            'places[]': places
+            }
+        include = {
+            'cumulative': cumulative,
+            'place': '&'.join(places)
+            }
         for date in dates:
             for state in states:
                 query_data['state'] = state
+                include['state'] = state
                 for city in self.STATES[state]:
                     query_data['city_id'] = self.city_id(state, city)
-                    yield self.build_request(query_data, date, state=state, city=city, cumulative=cumulative)
+                    include['city'] = city
+                    yield self.build_request(query_data, date, **include)
 
     
     def __get_states(self, dates: list, states, cumulative: bool=True, places: list=PLACES) -> list:
         """ Obtém dados a nível estadual
         """
-        query_data = {'places[]': places}
+        query_data = {
+            'places[]': places
+            }
+        include = {
+            'cumulative': cumulative,
+            'place': '&'.join(places),
+            'city': ''
+            }
         for date in dates:
             for state in states:
                 query_data['state'] = state
-                yield self.build_request(query_data, date, state=state, cumulative=cumulative)
+                include['state'] = state
+                yield self.build_request(query_data, date, **include)
         
     def __get_country(self, dates: list, cumulative: bool=True, places: list=PLACES) -> list:
         """ Obtém dados a nível federal
         """
-        query_data = {'state': 'Todos', 'places[]': places}
+        query_data = {
+            'state': 'Todos',
+            'places[]': places
+            }
+        include = {
+            'cumulative': cumulative,
+            'place': '&'.join(places),
+            'state': '',
+            'city': ''
+            }
         for date in dates:
-            yield self.build_request(query_data, date, cumulative=cumulative)
+            yield self.build_request(query_data, date, **include)
+
+    def __get_cache_kwarg(self, cache_kwarg: str):
+        if type(cache_kwarg) is bool and cache_kwarg is False:
+            return cache_kwarg
+        elif type(cache_kwarg) is str:
+            return f"{cache_kwarg}.p"
+        else:
+            raise TypeError(f"Parâmetro 'cache' deve ser do tipo 'str' ou 'False'.")
 
     def _requests(self, **kwargs) -> list:
         """
         """
+        if self.cache:
+            try:
+                requests = api_lib.pkload(self.cache)
+            except FileNotFoundError:
+                pass
+            else:
+                ## If any request was retrieved
+                if requests: return requests
+
         dates = self.__get_date_kwarg(kwargs['date'], cumulative=kwargs['cumulative'])
         places = self.__get_places_kwarg(kwargs['places'])
         
@@ -381,18 +472,27 @@ class API:
         return list(requests)
 
     @api_lib.time
+    @api_lib.no_suspend
     @api_lib.log
-    def complete(self, res: list, **kwargs) -> list:
-        api_lib.kwget(kwargs, self.kwargs)
-        return self._complete(res, **kwargs)
+    def get_all(self, **kwargs) -> list:
+        attempts = 1
+        while True:
+            try:
+                print(f'Tentativa nº {attempts}')
+                results = self.get(**kwargs)
+            except KeyboardInterrupt:
+                print(':: Cancelado ::')
+                break
+            except self.Finish:
+                print(':: Concluído ::')
+                break
+            except Exception:
+                pass
+            finally:
+                attempts += 1
+                time.sleep(self.WAIT)
+        return results
 
-    def _complete(self, res: list, **kwargs) -> list:
-        self.requests = res
-        self._gather(**self.kwargs)
-        return self.results
-
-    @api_lib.time
-    @api_lib.log
     def get(self, **kwargs) -> list:
         """
         """
@@ -404,40 +504,48 @@ class API:
         """
         ## Login
         self.login()
-        
         self._gather(**kwargs)
-        
         return self.results
 
     def _gather(self, **kwargs):
-        self.progress = api_lib.progress(self.total)
-        try:
-            if kwargs['sync']:
-                self.__get_requests()
-            else:
-                self.__async_get_requests()
-        except KeyboardInterrupt:
-            print()
-            print('Cancelado.')
-        except Exception as error:
-            self.log(f"Error: {error}") 
-            self.results = None
-        finally:
-            self.results = self.requests.copy()
-    
-    def _split(self, res: list) -> (list, list):
-        res_s = []
-        res_f = []
-        for x in res:
-            if x.success:
-                res_s.append(x)
-            else:
-                res_f.append(x)
-        return res_s, res_f
+        self.progress = api_lib.progress(self._total, self._done)
+        self.log("START @ gather")
+        finish = False
+        for block in self._blocks():
+            try:
+                if kwargs['sync']:
+                    self.__get_requests(block)
+                else:
+                    self.__async_get_requests(block)
+            except Exception:
+                break
+        else:
+            finish = True
+        
+        ## results <- requests
+        self.results = [req for req in self.requests]
+
+        ## cache actual results
+        self.cache_results()
+
+        ## raise finish signal
+        if finish: raise self.Finish
+
+    def cache_results(self):
+        if self.cache:
+            api_lib.pkdump(self.cache, self.results)
+            print(f"Resultados salvos em cache: '{self.cache}'")
+
+
+    def _blocks(self):
+        requests = [req for req in self.requests if not req.success]
+
+        for i in range(0, len(requests), self.BLOCK_SIZE):
+            yield requests[i:i+self.BLOCK_SIZE]
     
     def rate(self, res: list) -> float:
-        return sum([req.success for req in res]) / len(res)
-        
+        return self.done / self.total
+
     def to_json(self, fname: str, results: list) -> str:
         if not fname.endswith('.json'):
             fname = f'{fname}.json'
@@ -476,7 +584,8 @@ class API:
             results.append(union_data[date])
         return sorted(results, key=lambda x: x['date'])
     
-    def REQ_HEADERS(self):
+    @property
+    def REQUEST_HEADERS(self):
         return {
             "X-XSRF-TOKEN" : self.XSRF_TOKEN,
             "User-Agent" : "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:76.0) Gecko/20100101 Firefox/76.0",

@@ -29,11 +29,15 @@ class DataBase:
     def __exit__(self, *args, **kwargs):
         self.close()
 
-    def __call__(self, cmd: str, *params: tuple):
+    def __call__(self, cmd: str, params: tuple=None):
         if self._conn is None: # Not connected
             raise RuntimeError('Not connected to database.')
+        else:
+            self.cursor = self._conn.cursor()
+            
+        if params is None:
+            params = tuple()
 
-        self.cursor = self._conn.cursor()
         results = []
         try:
             self.cursor.execute(cmd, params)
@@ -41,7 +45,7 @@ class DataBase:
             self._conn.commit()
         except sqlite3.Error as error:
             self._conn.rollback()
-            raise
+            raise error
         finally:
             self.cursor.close()
             return results

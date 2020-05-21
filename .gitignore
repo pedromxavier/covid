@@ -141,3 +141,9 @@ dmypy.json
 
 # virtualenv
 covid-venv/
+
+# yml files - readthedocs
+*.yml
+
+# database files
+*.db
