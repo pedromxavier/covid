@@ -50,7 +50,8 @@ def fetch_data_hash(api_url: str, data: dict=None) -> (object, bytes):
 
 def get_request_json(url: str, **kwargs) -> (object):
     ## Decode JSON into Python dict
-    return json.loads(get_request(url, **kwargs))
+    ans = request(url, **kwargs)[0]
+    return json.loads(ans.read())
 
 def get_request(url: str, **kwargs) -> str:
     ## Read answer from request
@@ -59,12 +60,8 @@ def get_request(url: str, **kwargs) -> str:
 def request(url: str, **kwargs):
     """ request(url: str, **kwargs) -> response, request
     """
-    try:
-        req = Request(url, **kwargs)
-        ans = urlopen(req)
-    except HTTPError as http_error:
-        raise RuntimeError(f"Code {http_error.code}: in GET {url}")
-    return ans, req
+    req = Request(url, **kwargs)
+    return urlopen(req), req
 
 def get_request_hash(url: str) -> (object, bytes):
     ## Read answer from API
@@ -165,35 +162,93 @@ ASCII_REGEX = re.compile(ASCII_PATTERN, flags=re.IGNORECASE)
 
 def ascii_decode(s: str) -> str:
     return ASCII_REGEX.sub(lambda match: ASCII_DECODE.get(match.group(0)), s)
+        
+class progress:
 
-def _progress(total: int):
-    """
-    """
-    ## Lock done variable
-    lock = threading.Lock()
-    done = 0
+    STEPS = 20
 
-    ## ETA
-    start_time = clock()
-    total_time = clock() - start_time
+    def __init__(self, total: int):
+        ## Total steps
+        self.total = total
+
+        ## Lock for progress track
+        self.lock = threading.Lock()
+        self.done = 0
+
+        self.start_time = clock()
+        self.total_time = clock() - self.start_time
+
+        ## Previous output string lenght
+        self.last_length = 0
+
+        print(f'Total: {self.total}')
+        print(self.string, end=self.end)
+
+    def __iter__(self):
+        while self.done < self.total:
+            yield next(self)
+
+    def __next__(self):
+        if self.done < self.total:
+            with self.lock:
+                self.done += 1
+            self.total_time = clock() - self.start_time
+            print(self.string, self.padding, end=self.end)
+            self.last_length = self.length
+        else:
+            raise StopIteration
+
+    @property
+    def string(self):
+        return f'Progresso: {self.bar} {self.done}/{self.total} {100 * self.ratio:2.2f}% eta: {self.eta}'
+
+    @property
+    def padding(self):
+        return " " * (self.last_length - self.length)
+
+    @property
+    def length(self):
+        return len(self.string)
+
+    @property
+    def ratio(self) -> float:
+        return self.done / self.total
     
-    while done <= total:
-        with lock: done += 1
-        total_time = clock() - start_time
-        eta = (total_time / done) * (total - done)
-        end = '\r' if done < total else '\n'
-        x = done / total
-        print(f'Progresso: {progress_bar(x)} {done}/{total} {100 * x:2.2f}% eta: {eta:.1f}s     ', end=end)
-        yield
+    @property
+    def eta(self) -> str:
+        if not self.done:
+            return "?"
+        s = (self.total_time / self.done) * (self.total - self.done)
+        if s >= 60:
+            m, s = divmod(s, 60)
+            if m >= 60:
+                h, m = divmod(m, 60)
+                if h >= 24:
+                    d, h = divmod(h, 24)
+                    return f"{int(d):d}d{int(h):d}h{int(m):d}m{int(s):d}s"
+                else:
+                    return f"{int(h):d}h{int(m):d}m{int(s):d}s"
+            else:
+                return f"{int(m):d}m{int(s):d}s"
+        else:
+            return f"{int(s):d}s"
 
-def progress(total: int):
-    print(f'Progresso: {progress_bar(0.0)} 0/{total}  0.00% eta: ?s', end='\r')
-    return _progress(total)
+    @property
+    def end(self) -> str:
+        return '\r' if self.done < self.total else '\n'
 
-def progress_bar(x: float):
-    if x == 0.0:
-        return f"[{' ' * 16}]"
-    elif x < 1:
-        return f"[{int(x * 16) * '='}>{int((1-x) * 16) * ' '}]"
-    else:
-        return f"[{'=' * 16}]"
+    @property
+    def bar(self) -> str:
+        if self.ratio == 0.0:
+            return f"[{' ' * self.STEPS}]"
+        elif self.ratio < 1:
+            return f"[{int(self.ratio * self.STEPS) * '='}>{int((1 - self.ratio) * self.STEPS) * ' '}]"
+        else:
+            return f"[{'=' * self.STEPS}]"
+
+def log(callback):
+    @wraps(callback)
+    def new_callback(self, *args, **kwargs):
+        with open(self.LOG_FNAME) as self.log_file:
+            return callback(self, *args, **kwargs)
+    return new_callback
