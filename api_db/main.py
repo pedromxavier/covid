@@ -4,7 +4,7 @@ import sqlite3
 import datetime
 
 ## Local
-from .database import DataBase
+from database import DataBase
 
 def load(fname: str):
     with open(fname, 'r') as file:
@@ -17,7 +17,7 @@ def dump(fname: str, s: str):
 def flatten(x: list):
     return sum(x, [])
 
-class DB(DataBase):
+class APIDB(DataBase):
 
     TYPE_INT = 'INTEGER NOT NULL DEFAULT 0'
     TYPE_TEXT = 'TEXT'
@@ -141,13 +141,11 @@ class DB(DataBase):
             fields = []
             for field in self.TABLE[section]:
                 fields.append(f"{field} {self.TABLE[section][field]}")
-            sections.append(f"/* {section} */\n" + ",\n".join(fields))
+            sections.append(f"\t/* {section} */\n\t" + ",\n\t".join(fields))
         body = ",\n\n".join(sections)
-        return f"""
-CREATE TABLE IF EXISTS {self.TABLE_NAME} (
-    {body}
-);
-"""
+        return f"""CREATE TABLE IF EXISTS {self.TABLE_NAME} (
+{body}
+);"""
 
     
 

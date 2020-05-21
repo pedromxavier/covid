@@ -1,1 +1,1 @@
-from .main import DB
+from .main import APIDB
