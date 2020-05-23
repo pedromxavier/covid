@@ -1,5 +1,7 @@
 # Interface para a API dos cartórios.
 
+## **Esta documentação está um tanto quanto desatualizada. O programa está em processo de adequação as mudanças feitas na API dos cartórios.**
+
 ## Instalação
 Requer Python 3.7.3 ou superior.
 
