@@ -16,8 +16,6 @@ import json
 import re
 import csv
 
-SYSTEM = platform.system()
-
 def kwget(kwargs: dict, default: dict):
     for key in kwargs:
         if key not in default:
@@ -280,30 +278,4 @@ def log(callback):
     def new_callback(self, *args, **kwargs):
         with open(self.LOG_FNAME, 'w') as self.log_file:
             return callback(self, *args, **kwargs)
-    return new_callback
-
-if SYSTEM in {'Linux', 'Darwin'}:
-    SUSPEND = (
-        'systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target',
-        'systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target'
-        )
-    SHELL = 'bash$'
-elif SYSTEM in {'Windows'}:
-    SUSPEND = (
-        'powercfg -x -standby-timeout-ac 0',
-        'powercfg -x -standby-timeout-ac 30'
-    )
-    SHELL = 'cmd>'
-
-def no_suspend(callback):
-    @wraps(callback)
-    def new_callback(*args, **kwargs):
-        try:
-            os.system(SUSPEND[0])
-            print(f'{SHELL} {SUSPEND[0]}')
-            return callback(*args, **kwargs)
-        finally:
-            os.system(SUSPEND[1])
-            print(f'{SHELL} {SUSPEND[1]}')
-    return new_callback
-        
+    return new_callback       

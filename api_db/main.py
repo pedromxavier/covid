@@ -4,7 +4,7 @@ import sqlite3
 import datetime
 
 ## Local
-from database import DataBase
+from .database import DataBase
 
 def load(fname: str):
     with open(fname, 'r') as file:
@@ -22,6 +22,7 @@ class APIDB(DataBase):
     TYPE_INT = 'INTEGER NOT NULL DEFAULT 0'
     TYPE_TEXT = 'TEXT'
     TYPE_DATE = 'DATE'
+    TYPE_AGE = 'INTEGER DEFAULT NULL'
 
     DB_FNAME = 'covid'
 
@@ -44,6 +45,9 @@ class APIDB(DataBase):
         },
         'DATA': {
             'DIA': TYPE_DATE
+        },
+        'IDADE': {
+            'IDADE': TYPE_AGE
         }
     }
 
