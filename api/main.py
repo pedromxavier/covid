@@ -140,21 +140,40 @@ class APIQuery(object):
     def keys(self):
         return [(f'{key}[]' if (key in self.__lists__) else key) for key in self.__slots__ if self[key] is not None]
 
+class APIRequestError(Exception):
+
+    def __init__(self, msg: str):
+        Exception.__init__(self, msg)
+        self.msg = msg
+    
+    def __str__(self):
+        return self.msg
+
 class APIRequest(object):
 
     __slots__ = ('url', 'query', 'results', 'request')
 
     def __init__(self, url: str, query: APIQuery, results: APIResults, **options):
         self.url = url
-        self.query = dict(query)
+        self.query = query
         self.results = results
-        self.request = Request(f"{self.url}?{urlencode(self.query, True)}", **options)
+        self.request = Request(f"{self.url}?{urlencode(dict(self.query), True)}", **options)
     
     def __repr__(self):
         return f"APIRequest[{self.success}]"
     
     def get(self):
-        return urlopen(self.request)
+        try:
+            response = urlopen(self.request)
+            raw_text = response.read()
+
+            return json.loads(raw_text)
+        except HTTPError as error:
+            raise APIRequestError(f'HTTP Error: Code {error.code} in GET {self.request.full_url}')
+        except json.JSONDecodeError as error:
+            raise APIRequestError(f'JSON Error: {error}')
+        finally:
+            response.close()
 
     def commit(self, response_data: dict):
         self.results.commit(response_data)
