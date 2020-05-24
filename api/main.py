@@ -1,6 +1,8 @@
 #!/usr/env/python3
 ## Standard Library
 from http.cookiejar import CookieJar
+from urllib.request import Request, urlopen
+from urllib.parse import urlencode
 from urllib.error import HTTPError
 from functools import wraps
 import asyncio
@@ -30,12 +32,143 @@ except ImportError:
 
 ## Local
 import api_lib
+import api_db
+
+## Constants
+## Possible causes
+CAUSES = (
+    'COVID',
+    'SRAG',
+    'PNEUMONIA',
+    'INSUFICIENCIA_RESPIRATORIA',
+    'SEPTICEMIA',
+    'INDETERMINADA',
+    'OUTRAS'
+)
+
+## Possible places
+PLACES = {'HOSPITAL', 'DOMICILIO', 'VIA_PUBLICA', 'AMBULANCIA', 'OUTROS'}
+
+## Time constants
+BEGIN = datetime.date(2020, 1, 1)
+TODAY = datetime.date.today()
+ONE_DAY = datetime.timedelta(days=1)
+YEARS = ('2019', '2020')
+
+GENDERS = ["M", "F"]
+
+class APIResults(object):
+    """
+    """
+    __slots__ = ('date', 'state', 'city', 'region', 'gender', 'chart', 'place', 'age') + CAUSES + ('success',)
+
+    __defaults = {
+        'date': TODAY,
+        'state': None,
+        'city': None,
+        'region': None,
+        'gender': None,
+        'chart': None,
+        'place': None,
+        'age': None,
+        **{cause: 0 for cause in CAUSES},
+        'success': False
+        }
+
+    def __init__(self, **kwargs):
+        for name in self.__slots__:
+            if name in kwargs:
+                setattr(self, name, kwargs[name])
+            else:
+                setattr(self, name, self.__defaults[name])
+
+    def commit(self, response_data: dict):
+        #pylint: disable=no-member
+        if self.chart == 3:
+            ...
+        else:
+            raise ValueError(f'Não sei lidar com o chart nº {self.chart}')
+        self.success = True
+            
+    def __getitem__(self, name: str):
+        return getattr(self, name)
+
+    def keys(self):
+        return [key for key in self.__slots__ if key != 'success']
+
+class APIQuery(object):
+    """
+        Example Query:
+        json {
+            "start_date":"2020-01-01",
+            "end_date":"2020-05-22",
+            "state":"RJ",
+            "city_id":"4646",
+            "chart":"chart3",
+            "gender":"F",
+            "places[]":["HOSPITAL","DOMICILIO","VIA_PUBLICA","OUTROS"]
+        }
+    """
+
+    __slots__ = ('start_date', 'end_date', 'state', 'city_id', 'chart', 'gender', 'places')
+
+    __lists__ = ('places',)
+
+    def __init__(self, *, start_date=None,
+                          end_date=None,
+                          state=None,
+                          city_id=None,
+                          chart=None,
+                          gender=None,
+                          places=None,
+                          **extra_kwargs):
+        for name in self.__slots__:
+            setattr(self, name, eval(name, {}, locals()))
+
+    def __iter__(self):
+        return iter(dict(self))
+
+    def __getitem__(self, name: str):
+        try:
+            if name.endswith('[]'):
+                return getattr(self, name[:-2])
+            else:
+                return getattr(self, name)
+        except AttributeError:
+            raise KeyError(name)
+            
+    def keys(self):
+        return [(f'{key}[]' if (key in self.__lists__) else key) for key in self.__slots__ if self[key] is not None]
+
+class APIRequest(object):
+
+    __slots__ = ('url', 'query', 'results', 'request')
+
+    def __init__(self, url: str, query: APIQuery, results: APIResults, **options):
+        self.url = url
+        self.query = dict(query)
+        self.results = results
+        self.request = Request(f"{self.url}?{urlencode(self.query, True)}", **options)
+    
+    def __repr__(self):
+        return f"APIRequest[{self.success}]"
+    
+    def get(self):
+        return urlopen(self.request)
+
+    def commit(self, response_data: dict):
+        self.results.commit(response_data)
+    
+    @property
+    def success(self):
+        return self.results.success
 
 class API:
 
+    ## API constants
     API_URL = r'https://transparencia.registrocivil.org.br/api/covid-covid-registral'
 
-    ## Login
+    ## Login constants
     LOGIN_URL = r"https://transparencia.registrocivil.org.br/registral-covid"
     XSRF_TOKEN = ""
     LOGIN_HEADERS = {
@@ -44,70 +177,31 @@ class API:
         "Pragma": "no-cache"
     }
 
+    ## City information
     UPDATED_CITIES = False
-
     STATES, ID_TABLE = api_lib.load_cities()
 
-    CAUSES = (
-                'COVID',
-                'SRAG',
-                'PNEUMONIA',
-                'INSUFICIENCIA_RESPIRATORIA',
-                'SEPTICEMIA',
-                'INDETERMINADA',
-                'OUTRAS'
-    )
+    ## Years
+    YEARS = YEARS
 
-    YEARS = ('2019', '2020')
-
-    CAUSE_YEAR = [item for item in itertools.product(CAUSES, YEARS) if item != ('COVID', '2019')]
-
-    CAUSE_KEYS = [f'{cause}_{year}' for cause, year in CAUSE_YEAR]
-
-    CSV_HEADER = ['date', 'state', 'city', 'region'] + CAUSE_KEYS
-
-    PLACES = {'HOSPITAL', 'DOMICILIO', 'VIA_PUBLICA', 'AMBULANCIA', 'OUTROS'}
+    ## Possible places
+    PLACES = PLACES
 
     ## Log
     LOG_FNAME = 'api.log'
 
-    DEFAULT_RESULTS = {cause_key : 0 for cause_key in CAUSE_KEYS}
-
-    RESULT_DATA = {
-        **{'date': '', 'state': '', 'city': '', 'region': ''}, 
-        **DEFAULT_RESULTS
-    }
-
+    ## Default block size
     BLOCK_SIZE = 1024
 
-    WAIT = 10
-
-    class APIResults(object):
-        
-        __slots__ = ('date', 'state', 'city', 'region') + ('COVID','SRAG','PNEUMONIA','INSUFICIENCIA_RESPIRATORIA','SEPTICEMIA','INDETERMINADA','OUTRAS')
-
-        def __init__(self, **kwargs):
-            for name in self.__slots__: setattr(self, name, kwargs[name])
-
-    class APIRequest(object):
-
-        __slots__ = 'url', 'data', 'success', 'results'
-
-        def __init__(self, url: str, data: dict):
-            self.url = url
-            self.data = data
-            self.success = False
-            self.results = None
-
-        def __repr__(self):
-            return f"APIRequest[{self.success}]"
-
-        def commit(self, results: object):
-            self.results = results
-            self.success = True
-
-    class Finish(Exception):
-        pass
+    ## Request
+    @property
+    def REQUEST_HEADERS(self):
+        return {
+            "X-XSRF-TOKEN" : self.XSRF_TOKEN,
+            "User-Agent" : "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:76.0) Gecko/20100101 Firefox/76.0",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache"
+        }
 
     def __init__(self, **kwargs):
         """
@@ -126,10 +220,10 @@ class API:
         self.kwargs = kwargs
 
         ## Request block size
-        self.BLOCK_SIZE = self.kwargs['block']
+        self.block_size = self.kwargs['block']
 
         ## Logging
-        self.log_file = open(self.LOG_FNAME, 'a')
+        self.log_file = open(self.LOG_FNAME, 'a') ## Creates file if it does not exists
         self.log_file.close()
         self.log_lock = threading.Lock()
 
@@ -140,7 +234,7 @@ class API:
         self.cookie_jar = CookieJar()
 
         ## Request Queue
-        self.requests = self._requests(**self.kwargs)
+        self.requests = [] #list(self.build_requests())
 
         ## Results
         self.results = []
@@ -151,32 +245,10 @@ class API:
             self.semaphore = asyncio.Semaphore(self.BLOCK_SIZE)
             self.timeout = aiohttp.ClientTimeout(total=(self.total * 5))
 
-    @property
-    def total(self):
-        if hasattr(self, 'progress') and hasattr(self.progress, 'total'):
-            return self.progress.total
-        else:
-            return self._total
-
-    @property
-    def done(self):
-        if hasattr(self, 'progress') and hasattr(self.progress, 'done'):
-            return self.progress.done
-        else:
-            return self._done
-    
-    @property
-    def _total(self):
-        return len(self.requests)
-
-    @property
-    def _done(self):
-        return sum([req.success for req in self.requests])
-
     def log(self, s: str):
         header = f"[{datetime.datetime.now():%Y-%m-%d %H:%M:%S}]"
         with self.log_lock: print(header, s, file=self.log_file)
-    
+
     def login(self):
         try:
             ans, req = api_lib.request(self.LOGIN_URL, headers=self.LOGIN_HEADERS)
@@ -187,22 +259,15 @@ class API:
             print(f'Falha no login')
             raise
     
-    def extract_chart(self, chart: dict):
-        chart = chart['chart']
-        chart_data = {f'{cause}_{year}': chart[year][cause] for year in chart for cause in chart[year]}
-        return {**self.DEFAULT_RESULTS, **chart_data}
-    
-    def build_request(self, query_data:dict, date, **include) -> (str, dict):
-        query_data['start_date'] = str(date[0])
-        query_data['end_date'] = str(date[1])
-        url = api_lib.encode_url(self.API_URL, query_data)
-        return self.APIRequest(url, {**self.RESULT_DATA, 'date' : query_data['end_date'], **include})
+    def extract_chart(self, response_data: dict):
+        chart = response_data['chart']
+        return {f'{cause}_{year}': chart[year][cause] for year in chart for cause in chart[year]}
 
     ## -- SYNC --
     def __get_request(self, req: APIRequest):
         try:
-            ans_data = self.extract_chart(api_lib.get_request_json(req.url, headers=self.REQUEST_HEADERS))
-            req.commit({**req.data, **ans_data})
+            response_data = self.extract_chart(api_lib.get_request_json(req.url, headers=self.REQUEST_HEADERS))
+            req.commit(response_data)
         except HTTPError as http_error:
             self.log(f'Code {http_error.code} in GET {req.url}\nError: {http_error}\n')
         except Exception as error:
@@ -270,7 +335,7 @@ class API:
             for place in places_kwarg:
                 place = place.upper()
                 if place not in self.PLACES:
-                    raise ValueError(f'Local inválido `{place}`.\nAs opções válidas são: {" - ".join(self.PLACES)}')
+                    raise ValueError(f'Local inválido `{place}`.\nAs opções válidas são: {PLACES}')
                 else:
                     places.append(place)
             else:
@@ -337,12 +402,20 @@ class API:
             return sum([self.__get_city_kwarg(x, state_sufix=state_sufix) for x in city_kwarg], [])
         else:
             raise ValueError(f'Especificação de cidade inválida: {city}.\nO formato correto é `Nome da Cidade-UF`')
+    
+    def __get_cache_kwarg(self, cache_kwarg: str):
+        if type(cache_kwarg) is bool and cache_kwarg is False:
+            return cache_kwarg
+        elif type(cache_kwarg) is str:
+            return f"{cache_kwarg}.p"
+        else:
+            raise TypeError(f"Parâmetro 'cache' deve ser do tipo 'str' ou 'False'.") 
     ## -- KWARGS --
 
     def city_id(self, state: str, city_name: str):
         """
         """
-        ascii_city_name = api_lib.ascii_decode(city_name)
+        ascii_city_name = api_lib.ascii_decode(city_name).upper()
         try:
             return self.ID_TABLE[(state, ascii_city_name)]
         except KeyError:
@@ -353,127 +426,53 @@ class API:
                 return self.city_id(state, ascii_city_name)
             else:
                 raise ValueError(f'Cidade não cadastrada: `{city_name} ({state})`.')
-    
-    def __get_cities(self, dates: list, cities, cumulative: bool=True, places: list=PLACES) -> list:
-        """ Obtém dados a nível municipal
-        """
-        query_data = {
-            'places[]': places
-            }
-        include = {
-            'cumulative': cumulative,
-            'place': '&'.join(places)
-            }
-        for date in dates:
+
+    def get_dates(self, **kwargs):
+        return [(date, date) for date in api_lib.arange(BEGIN, TODAY, ONE_DAY)]
+
+    def get_cities(self, **kwargs):
+        if kwargs['state'] is None:
+            return [(state, city, self.city_id(state, city)) for state in self.STATES for city in self.STATES[state]]
+        else:
+            return [(kwargs['state'], city, self.city_id(kwargs['state'], city)) for city in self.STATES[kwargs['state']]]
+
+    def get_genders(self, **kwargs):
+        return GENDERS
+
+    def get_places(self, **kwargs):
+        return PLACES
+
+    def build_requests(self, **kwargs) -> list:
+        ## data lists
+        dates = self.get_dates(**kwargs)
+        cities = self.get_cities(**kwargs)
+        places = self.get_places(**kwargs)
+        genders = self.get_genders(**kwargs)
+
+        total = len(dates) * len(cities) * len(places) * len(genders)
+
+        print(f'Total: {total}')
+
+        data = {'chart': 'chart3'}
+        for start_date, end_date in dates:
+            data['start_date'] = start_date
+            data['end_date'] = end_date
+            data['date'] = end_date
             for state, city, city_id in cities:
-                query_data['city_id'] = city_id
-                query_data['state'] = state
-                include['city'] = city
-                include['state'] = state
-                yield self.build_request(query_data, date, **include)
-    
-    def __get_all_cities_in_states(self, dates, states, cumulative: bool=True, places: list=PLACES) -> list:
-        """ Obtém dados a nível municipal
-        """
-        query_data = {
-            'places[]': places
-            }
-        include = {
-            'cumulative': cumulative,
-            'place': '&'.join(places)
-            }
-        for date in dates:
-            for state in states:
-                query_data['state'] = state
-                include['state'] = state
-                for city in self.STATES[state]:
-                    query_data['city_id'] = self.city_id(state, city)
-                    include['city'] = city
-                    yield self.build_request(query_data, date, **include)
+                data['state'] = state
+                data['city'] = city
+                data['city_id'] = city_id
+                for place in places:
+                    data['places'] = [place]
+                    data['place'] = place
+                    for gender in genders:
+                        data['gender'] = gender
+                        yield APIRequest(self.API_URL, APIQuery(**data), APIResults(**data), headers=self.REQUEST_HEADERS)
 
-    
-    def __get_states(self, dates: list, states, cumulative: bool=True, places: list=PLACES) -> list:
-        """ Obtém dados a nível estadual
-        """
-        query_data = {
-            'places[]': places
-            }
-        include = {
-            'cumulative': cumulative,
-            'place': '&'.join(places),
-            'city': ''
-            }
-        for date in dates:
-            for state in states:
-                query_data['state'] = state
-                include['state'] = state
-                yield self.build_request(query_data, date, **include)
-        
-    def __get_country(self, dates: list, cumulative: bool=True, places: list=PLACES) -> list:
-        """ Obtém dados a nível federal
-        """
-        query_data = {
-            'state': 'Todos',
-            'places[]': places
-            }
-        include = {
-            'cumulative': cumulative,
-            'place': '&'.join(places),
-            'state': '',
-            'city': ''
-            }
-        for date in dates:
-            yield self.build_request(query_data, date, **include)
+    @classmethod
+    def make_request(cls, request: APIRequest):
+        return request.get()
 
-    def __get_cache_kwarg(self, cache_kwarg: str):
-        if type(cache_kwarg) is bool and cache_kwarg is False:
-            return cache_kwarg
-        elif type(cache_kwarg) is str:
-            return f"{cache_kwarg}.p"
-        else:
-            raise TypeError(f"Parâmetro 'cache' deve ser do tipo 'str' ou 'False'.")
-
-    def _requests(self, **kwargs) -> list:
-        """
-        """
-        if self.cache:
-            try:
-                requests = api_lib.pkload(self.cache)
-            except FileNotFoundError:
-                pass
-            else:
-                ## If any request was retrieved
-                if requests: return requests
-
-        dates = self.__get_date_kwarg(kwargs['date'], cumulative=kwargs['cumulative'])
-        places = self.__get_places_kwarg(kwargs['places'])
-        
-        ## Nível Federal
-        if kwargs['state'] is None and kwargs['city'] is None:
-            requests = self.__get_country(dates, cumulative=kwargs['cumulative'], places=places)
-        ## Nível Estadual
-        elif kwargs['city'] is None:
-            if kwargs['state'] in {None, all} or type(kwargs['state']) in {set, str}:
-                states = self.__get_state_kwarg(kwargs['state'])
-                requests = self.__get_states(dates, states, cumulative=kwargs['cumulative'], places=places)
-        ## Nível Municipal
-        elif kwargs['city'] is all and kwargs['state'] is not None:
-            states = self.__get_state_kwarg(kwargs['state'])
-            requests = self.__get_all_cities_in_states(dates, states, cumulative=kwargs['cumulative'], places=places)
-        elif type(kwargs['city']) in {set, str} and kwargs['state'] is None:
-            cities = self.__get_city_kwarg(kwargs['city'])
-            requests = self.__get_cities(dates, cities, cumulative=kwargs['cumulative'], places=places)
-        elif type(kwargs['city']) in {set, str} and type(kwargs['state']) is str:
-            cities = self.__get_city_kwarg(kwargs['city'], state_sufix=kwargs['state'])
-            requests = self.__get_cities(dates, cities, cumulative=kwargs['cumulative'], places=places)
-        else:
-            raise ValueError(f"Especificação inválida de localização: (city={kwargs['city']!r}, state={kwargs['state']!r})")
-        
-        return list(requests)
-
-    @api_lib.time
-    @api_lib.no_suspend
-    @api_lib.log
     def get_all(self, **kwargs) -> list:
         attempts = 1
         while True:
@@ -483,14 +482,10 @@ class API:
             except KeyboardInterrupt:
                 print(':: Cancelado ::')
                 break
-            except self.Finish:
-                print(':: Concluído ::')
-                break
             except Exception:
                 pass
             finally:
                 attempts += 1
-                time.sleep(self.WAIT)
         return results
 
     def get(self, **kwargs) -> list:
@@ -504,13 +499,18 @@ class API:
         """
         ## Login
         self.login()
-        self._gather(**kwargs)
-        return self.results
+        
+        ## Checks for success:
+        if self._gather(**kwargs):
+            return self.results
+        else:
+            return None
 
-    def _gather(self, **kwargs):
+    def _gather(self, **kwargs) -> bool:
+        """
+        """
+        self.log('START API._gather')
         self.progress = api_lib.progress(self._total, self._done)
-        self.log("START @ gather")
-        finish = False
         for block in self._blocks():
             try:
                 if kwargs['sync']:
@@ -518,80 +518,71 @@ class API:
                 else:
                     self.__async_get_requests(block)
             except Exception:
+                success = False
                 break
         else:
-            finish = True
-        
+            success = True
+
         ## results <- requests
         self.results = [req for req in self.requests]
 
         ## cache actual results
         self.cache_results()
 
-        ## raise finish signal
-        if finish: raise self.Finish
+        return success
 
     def cache_results(self):
         if self.cache:
             api_lib.pkdump(self.cache, self.results)
-            print(f"Resultados salvos em cache: '{self.cache}'")
-
+            print(f"Resultados salvos no arquivo de cache '{self.cache}'")
 
     def _blocks(self):
+        """ This function divides the pending requests into
+        """
+        ## Collect pending requests
         requests = [req for req in self.requests if not req.success]
 
-        for i in range(0, len(requests), self.BLOCK_SIZE):
-            yield requests[i:i+self.BLOCK_SIZE]
+        ## Returns the whole batch
+        if self.block_size is None:
+            yield requests
+        ## Splits the batch into blocks
+        else:
+            for i in range(0, len(requests), self.block_size):
+                yield requests[i:i+self.block_size]
     
-    def rate(self, res: list) -> float:
-        return self.done / self.total
-
-    def to_json(self, fname: str, results: list) -> str:
-        if not fname.endswith('.json'):
-            fname = f'{fname}.json'
-
-        with open(fname, 'w') as file:
-            file.write(json.dumps(results))
-
-    def to_csv(self, fname: str, results: list):
-        if not fname.endswith('.csv'):
-            fname = f'{fname}.csv'
-
-        with open(fname, 'w', newline='') as file:
-            writer = csv.DictWriter(file, fieldnames=self.CSV_HEADER)
-            writer.writeheader()
-            for result in results:
-                row = {key : (str(result[key]) if key in result else "") for key in self.CSV_HEADER}
-                writer.writerow(row)
-    
-    def union(self, res: list, **kwargs) -> list:
-        """
-        """
-        api_lib.kwget(kwargs, {
-            'region': ''
-        })
-        union_data = {}
-        for data in res:
-            date = data['date']
-            if date not in union_data:
-                union_data[date] = {cause_key : 0 for cause_key in self.CAUSE_KEYS}
-            for cause_key in self.CAUSE_KEYS:
-                union_data[date][cause_key] += data[cause_key]
-        results = []
-        for date in union_data:
-            union_data[date]['date'] = date
-            union_data[date]['region'] = kwargs['region']
-            results.append(union_data[date])
-        return sorted(results, key=lambda x: x['date'])
+    ## Progress Properties
+    @property
+    def total(self):
+        try:
+            return self.progress.total
+        except AttributeError:
+            return self._total
     
     @property
-    def REQUEST_HEADERS(self):
-        return {
-            "X-XSRF-TOKEN" : self.XSRF_TOKEN,
-            "User-Agent" : "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:76.0) Gecko/20100101 Firefox/76.0",
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache"
-        }
+    def _total(self) -> int:
+        return len(self.requests)
+    
+    @property
+    def done(self):
+        try:
+            return self.progress.done
+        except AttributeError:
+            return self._done
+
+    @property
+    def _done(self) -> int:
+        return sum([req.success for req in self.requests])
+    
+    @property
+    def rate(self) -> float:
+        try:
+            return self.progress.rate
+        except AttributeError:
+            return self._rate
+    
+    @property
+    def _rate(self) -> float:
+        return self._done / self._total
 
 
 

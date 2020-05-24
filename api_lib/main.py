@@ -115,7 +115,7 @@ def load_cities() -> (dict, dict):
         reader = csv.reader(file)
         for row in reader:
             state, city_name, city_id = row
-            ascii_city_name = ascii_decode(city_name)
+            ascii_city_name = ascii_decode(city_name).upper()
             if state in states:
                 states[state].append(ascii_city_name)
             else:
