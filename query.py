@@ -3,8 +3,6 @@ import datetime
 
 x = api.API()
 
-url = x.API_URL
-
 x.login()
 
 query = api.APIQuery(
@@ -23,7 +21,7 @@ results = api.APIResults(
     place="&".join(x.PLACES)
     )
 
-request = api.APIRequest(url, query, results, headers=x.REQUEST_HEADERS)
+request = api.APIRequest(x.API_URL, query, results, headers=x.REQUEST_HEADERS)
 print(request.request.full_url)
 ans = x.make_request(request)
 
