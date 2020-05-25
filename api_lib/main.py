@@ -276,6 +276,9 @@ class progress:
 def log(callback):
     @wraps(callback)
     def new_callback(self, *args, **kwargs):
-        with open(self.LOG_FNAME, 'w') as self.log_file:
+        if self.log_file.closed:
+            with open(self.LOG_FNAME, 'w') as self.log_file:
+                return callback(self, *args, **kwargs)
+        else:
             return callback(self, *args, **kwargs)
     return new_callback       
