@@ -353,7 +353,7 @@ class API:
             'gender' : None,
             'age': False,
             'cache': False,
-            'sync' : not ASYNC_LIB,
+            'sync' : not ASYNC_MODE,
             'block': self.BLOCK_SIZE
         })
         self.kwargs = kwargs
