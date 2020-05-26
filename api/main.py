@@ -230,7 +230,7 @@ class APIQuery(object):
             elif gender == 'F':
                 return 'chart3'
             else: ## age is True and gender is None
-                raise Exception('Isso não deve acontecer. JAMAIS!')
+                raise RuntimeError('Isso não deve acontecer. JAMAIS!')
 
     def __iter__(self):
         return iter(dict(self))
@@ -273,7 +273,7 @@ class APIRequest(object):
         try:
             response = urlopen(self.request)
             raw_text = response.read()
-            self.commit(json.loads(raw_text))
+            self.commit(json.loads(raw_text.decode('utf-8')))
         except HTTPError as error:
             raise APIRequestError(f'Code {error.code} in GET {self.request.full_url}\nError: {error}')
         except Exception as error:
@@ -535,7 +535,7 @@ class API:
         if type(cache_kwarg) is bool and cache_kwarg is False:
             return cache_kwarg
         elif type(cache_kwarg) is str:
-            return f"{cache_kwarg}.p"
+            return os.path.join("cache", f"{cache_kwarg}.p")
         else:
             raise TypeError(f"Parâmetro 'cache' deve ser do tipo 'str' ou 'False'.")
 
@@ -621,22 +621,31 @@ class API:
             try:
                 print(f'tentativa [{attempts}]')
                 self._get(**kwargs)
+                break
             except KeyboardInterrupt:
                 self.log('Keyborad Interrupt')
                 break
-            except Exception as error:
+            except APIRequestError as error:
                 self.log(error)
                 break
             finally:
                 ## skip line in prompt
                 print()
-                ## results <- requests
-                self.results = [req for req in self.requests]
-                ## cache actual results
-                self.cache_results()
+                ## cache actual requests
+                self.cache_requests()
                 ## increment attempt counter
                 attempts += 1
+
+        ## results <- requests
+        self.results = self.get_results()
+            
         return self.results
+
+    def get_results(self):
+        results = []
+        for request in self.requests:
+            results.extend(request.results.results)
+        return results
     
     def _get(self, **kwargs) -> list:
         """
@@ -658,10 +667,10 @@ class API:
             else:
                 self.async_run(block)
 
-    def cache_results(self):
+    def cache_requests(self):
         if self.cache:
-            api_lib.pkdump(self.cache, self.results)
-            print(f"Resultados salvos no arquivo de cache '{self.cache}'")
+            api_lib.pkdump(self.cache, self.requests)
+            print(f"Requests salvos no arquivo de cache '{self.cache}'")
 
     def _blocks(self):
         """ This function divides the pending requests into
