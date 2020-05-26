@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 from urllib.error import HTTPError
 from functools import wraps
 import sys
+import os
 import asyncio
 import csv
 import json
@@ -70,7 +71,7 @@ STATES, ID_TABLE = api_lib.load_cities()
 class APIResult(object):
     """
     """
-    __slots__ = ('date', 'state', 'city', 'region', 'gender', 'chart', 'place', 'age') + CAUSES
+    __slots__ = ('date', 'state', 'city', 'region', 'gender', 'chart', 'places', 'age') + CAUSES
 
     __defaults = {
         'date': TODAY,
@@ -79,8 +80,8 @@ class APIResult(object):
         'region': None,
         'gender': None,
         'chart': None,
-        'place': None,
-        'age': None,
+        'places': None,
+        'age': False,
         **{cause: 0 for cause in CAUSES},
         }
 
@@ -90,7 +91,10 @@ class APIResult(object):
                 setattr(self, name, kwargs[name])
             else:
                 setattr(self, name, self.__defaults[name])
-            
+
+    def __add__(self, other):
+        return APIResult(**{**self, **{k:self[k]+other[k] for k in CAUSES}})
+
     def __getitem__(self, name: str):
         return getattr(self, name)
 
@@ -100,7 +104,7 @@ class APIResult(object):
 class APIResults(object):
     """
     """
-    __slots__ = ('date', 'state', 'city', 'region', 'gender', 'chart', 'place', 'age') + CAUSES + ('results', 'success')
+    __slots__ = ('date', 'state', 'city', 'region', 'gender', 'chart', 'places', 'age') + CAUSES + ('results', 'success')
 
     __defaults = {
         'date': TODAY,
@@ -109,15 +113,29 @@ class APIResults(object):
         'region': None,
         'gender': None,
         'chart': None,
-        'place': None,
-        'age': None,
+        'places': None,
+        'age': False,
         **{cause: 0 for cause in CAUSES},
+        }
+
+    AGE_TABLE = {
+        '< 9': 0,
+        '10 - 19': 10,
+        '20 - 29': 20,
+        '30 - 39': 30,
+        '40 - 49': 40,
+        '50 - 59': 50,
+        '60 - 69': 60,
+        '70 - 79': 70,
+        '80 - 89': 80,
+        '90 - 99': 90,
+        '> 100': 100,
+        'N/I': None
         }
 
     def __init__(self, **kwargs):
         for name in self.__slots__:
-            if name in ('results', 'success'):
-                continue
+            if name in ('results', 'success'): continue
             if name in kwargs:
                 setattr(self, name, kwargs[name])
             else:
@@ -125,12 +143,35 @@ class APIResults(object):
         self.results = []
         self.success = False
 
+    @staticmethod
+    def get_chart(gender:str, age:bool):
+        if gender is None and age is False:
+            return 'chart5'
+        else:
+            if gender == 'M':
+                return 'chart2'
+            elif gender == 'F':
+                return 'chart3'
+            else: ## age is True and gender is None
+                raise Exception('Isso não deve acontecer. JAMAIS!')
+
     def commit(self, response_data: dict):
         chart = response_data['chart']
         #pylint: disable=no-member
-        if self.chart == 'chart3':
-            ...
-        if self.chart == 'chart5':
+        self.chart = self.get_chart(self.gender, self.age)
+        if self.chart in {'chart2', 'chart3'}:
+            data = {}
+            for age in chart:
+                data['age'] = self.AGE_TABLE[age]
+                for year in chart[age]:
+                    try:
+                        data['date'] = datetime.date(int(year), self.date.month, self.date.day)
+                    except ValueError:
+                        continue
+                    for cause in chart[age][year]:
+                        data[cause] = chart[age][year][cause]
+                    self.results.append(APIResult(**{**self, **data}))
+        elif self.chart == 'chart5':
             data = {} 
             for date in chart:
                 data['date'] = datetime.date.fromisoformat(date)
@@ -161,7 +202,7 @@ class APIQuery(object):
         }
     """
 
-    __slots__ = ('start_date', 'end_date', 'state', 'city_id', 'chart', 'gender', 'places')
+    __slots__ = ('start_date', 'end_date', 'state', 'city_id', 'gender', 'chart', 'places')
 
     __lists__ = ('places',)
 
@@ -169,12 +210,27 @@ class APIQuery(object):
                           end_date=None,
                           state=None,
                           city_id=None,
-                          chart=None,
                           gender=None,
+                          age=False,
                           places=None,
                           **extra_kwargs):
         for name in self.__slots__:
+            if name == 'chart': continue
             setattr(self, name, eval(name, {}, locals()))
+
+        self.chart = self.get_chart(gender, age)
+
+    @staticmethod
+    def get_chart(gender:str, age:bool):
+        if gender is None and age is False:
+            return 'chart5'
+        else:
+            if gender == 'M':
+                return 'chart2'
+            elif gender == 'F':
+                return 'chart3'
+            else: ## age is True and gender is None
+                raise Exception('Isso não deve acontecer. JAMAIS!')
 
     def __iter__(self):
         return iter(dict(self))
@@ -223,7 +279,6 @@ class APIRequest(object):
         except Exception as error:
             raise APIRequestError(f'Code {200} in GET {self.request.full_url}\nError: {error}')
         finally:
-            if progress is not None: next(progress)
             response.close()
 
     async def async_get(self, session, progress=None):
@@ -233,7 +288,6 @@ class APIRequest(object):
             except Exception as error:
                 raise APIRequestError(f'Code {response.status} in GET {self.request.full_url}\nError: {error}')
             finally:
-                if progress is not None: next(progress)
                 response.close()
 
     def commit(self, response_data: dict):
@@ -291,12 +345,12 @@ class API:
         """
         ## default keyword arguments
         api_lib.kwget(kwargs, {
-            'cumulative' : True,
+            'cumulative' : True, ##
             'date' : None,
             'state' : None,
             'city' : None,
-            'places' : all,
-            'gender' : all,
+            'places' : None,
+            'gender' : None,
             'age': False,
             'cache': False,
             'sync' : not ASYNC_LIB,
@@ -319,7 +373,10 @@ class API:
         self.cookie_jar = CookieJar()
 
         ## Request Queue
-        self.requests = list(self.build_requests(**self.kwargs))
+        if self.cache and os.path.exists(self.cache):
+            self.requests = api_lib.pkload(self.cache)
+        else:
+            self.requests = list(self.build_requests(**self.kwargs))
 
         ## Results
         self.results = []
@@ -348,15 +405,16 @@ class API:
             ## Gets first occurence of the Token in the cookie jar
             self.XSRF_TOKEN = next(cookie for cookie in self.cookie_jar if cookie.name == "XSRF-TOKEN").value
             print(f'Autenticado')
-        except Exception:
+        except Exception as error:
             print(f'Falha no login')
-            raise
+            raise error
     
     ## Synchronous GET methods
     def sync_request(self, request: APIRequest):
         """ Dispara o request de maneira sequencial
         """
-        return request.get(self.progress)
+        request.get()
+        next(self.progress)
 
     def sync_run(self, requests: list):
         """ Dispara os requests de maneira sequencial
@@ -367,7 +425,9 @@ class API:
     async def async_request(self, request: APIRequest, session):
         """
         """
-        return (await request.async_get(session, self.progress))
+        await request.async_get(session)
+        next(self.progress)
+
 
     async def _async_run(self, requests: list):
         """ Dispara os requests de maneira assíncrona.
@@ -389,19 +449,26 @@ class API:
         """
         """
         places_kwarg = kwargs['places']
-        
+
+        if type(places_kwarg) is str:
+            if places_kwarg not in self.PLACES:
+                raise ValueError(f'Local inválido `{places_kwarg}`.\nAs opções válidas são: {self.PLACES}')
+            else:
+                return [[places_kwarg]]
         if type(places_kwarg) is set:
             places = []
             for place in places_kwarg:
                 place = place.upper()
                 if place not in self.PLACES:
-                    raise ValueError(f'Local inválido `{place}`.\nAs opções válidas são: {PLACES}')
+                    raise ValueError(f'Local inválido `{place}`.\nAs opções válidas são: {self.PLACES}')
                 else:
                     places.append(place)
             else:
-                return sorted(places)
+                return [places]
         elif places_kwarg is all:
-            return sorted(self.PLACES)
+            return [[place] for place in self.PLACES]
+        elif places_kwarg is None:
+            return [list(self.PLACES)]
         else:
             raise TypeError('Especificação de local deve ser um conjunto (`set`) ou `all`.')
 
@@ -445,6 +512,7 @@ class API:
             return [('Todos', None, None)] # (state, city, city_id)
         elif type(state_kwarg) is str and state_kwarg in self.STATES:
             state_sufix = state_kwarg
+            states = [state_kwarg]
         elif type(state_kwarg) is set and all(s in self.STATES for s in state_kwarg):
             states = list(state_kwarg)
         else:
@@ -473,29 +541,28 @@ class API:
 
     def kwargs_gender(self, **kwargs):
         gender_kwarg = kwargs['gender']
+        age_kwarg = kwargs['age']
         if type(gender_kwarg) is str:
             gender = gender_kwarg.upper()
             if gender not in self.GENDERS:
                 raise ValueError(f"unknown gender: {gender}")
             return [gender]
         elif gender_kwarg is all:
-            return self.GENDERS
+            return list(self.GENDERS)
         elif gender_kwarg is None:
-            return [None]
+            if age_kwarg is False:
+                return [None]
+            else:
+                return list(self.GENDERS)
         else:
             raise TypeError(f"invalid gender type {type(gender_kwarg)}")
 
     def kwargs_age(self, **kwargs):
-        if type(kwargs['age']) is not bool:
-            raise TypeError('@kwargs_age')
-        
-        return []
-        
-    def kwargs_chart(self, **kwargs):
-        if kwargs['gender'] is None and kwargs['age'] is None:
-            return 'chart5'
+        age_kwarg = kwargs['age']
+        if type(age_kwarg) is bool:
+            return age_kwarg
         else:
-            return 'chart3'
+            raise TypeError('age must be bool')
     
     ## -- KWARGS --
 
@@ -518,7 +585,7 @@ class API:
         """
         """
         ## data lists
-        chart = self.kwargs_chart(**kwargs)
+        age = self.kwargs_age(**kwargs)
         dates = self.kwargs_date(**kwargs)
         cities = self.kwargs_city_state(**kwargs)
         places = self.kwargs_places(**kwargs)
@@ -528,7 +595,7 @@ class API:
 
         print(f'Total: {total}')
 
-        data = {'chart': chart}
+        data = {'age': age}
         for start_date, end_date in dates:
             data['start_date'] = start_date
             data['end_date'] = end_date
@@ -537,34 +604,39 @@ class API:
                 data['state'] = state
                 data['city'] = city
                 data['city_id'] = city_id
-                for place in places:
-                    data['places'] = [place]
-                    data['place'] = place
+                for place_list in places:
+                    data['places'] = place_list
                     for gender in genders:
                         data['gender'] = gender
                         yield APIRequest(self.API_URL, APIQuery(**data), APIResults(**data), headers=self.request_headers)
 
-    def get_all(self, **kwargs) -> list:
-        attempts = 1
-        while True:
-            try:
-                print(f'Tentativa nº {attempts}')
-                results = self.get(**kwargs)
-            except KeyboardInterrupt:
-                print(':: Cancelado ::')
-                break
-            except Exception:
-                pass
-            finally:
-                attempts += 1
-        return results
-
     @api_lib.log
+    @api_lib.standby_lock
     def get(self, **kwargs) -> list:
         """
         """
         api_lib.kwget(kwargs, self.kwargs)
-        return self._get(**kwargs)
+        attempts = 1
+        while True:
+            try:
+                print(f'tentativa [{attempts}]')
+                self._get(**kwargs)
+            except KeyboardInterrupt:
+                self.log('Keyborad Interrupt')
+                break
+            except Exception as error:
+                self.log(error)
+                break
+            finally:
+                ## skip line in prompt
+                print()
+                ## results <- requests
+                self.results = [req for req in self.requests]
+                ## cache actual results
+                self.cache_results()
+                ## increment attempt counter
+                attempts += 1
+        return self.results
     
     def _get(self, **kwargs) -> list:
         """
@@ -572,37 +644,19 @@ class API:
         ## Login
         self.login()
         
-        ## Checks for success:
-        if self._gather(**kwargs):
-            return self.results
-        else:
-            return None
-
+        ## Gather
+        self._gather(**kwargs)
+       
     def _gather(self, **kwargs) -> bool:
         """
         """
         self.log('START API._gather')
         self.progress = api_lib.progress(self._total, self._done)
         for block in self._blocks():
-            try:
-                if kwargs['sync']:
-                    self.sync_run(block)
-                else:
-                    self.async_run(block)
-            except APIRequestError as error:
-                self.log(error)
-                success = False
-                break
-        else:
-            success = True
-
-        ## results <- requests
-        self.results = [req for req in self.requests]
-
-        ## cache actual results
-        self.cache_results()
-
-        return success
+            if kwargs['sync']:
+                self.sync_run(block)
+            else:
+                self.async_run(block)
 
     def cache_results(self):
         if self.cache:
