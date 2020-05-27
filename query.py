@@ -1,19 +1,15 @@
 import api
 client = api.API(
-    date=all, ## busca todas as datas de 2019-01-01 até hoje
-    city=all, ## busca todas as cidades no estado abaixo
-    state='RJ', 
+    date=all, ## busca para todas as datas de 2019-01-01 até hoje
+    city=all, ## busca para todas as cidades no estados especificados abaixo
+    state=all, ## busca para todos os estados
     gender=all, ## busca para cada sexo
     age=True,  ## busca por faixa etária
-    places='DOMICILIO', ## local
-    cache='results-domicilio-cache' ## IMPORTANTE. Arquivo para cache dos resultados
+    places=all, ## busca dados para cada local possível
+    cache='complete-cache' ## IMPORTANTE. Arquivo para cache dos resultados
     )
-client_results = client.get()
-
-results = []
-for res in client_results:
-    results.extend(res.results.results)
+results = client.get()
 
 import api_io
 
-api_io.APIIO.to_csv('results-RJ-DOMICILIO', results)
+api_io.APIIO.to_csv('complete-results', results)

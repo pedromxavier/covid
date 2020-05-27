@@ -71,7 +71,7 @@ STATES, ID_TABLE = api_lib.load_cities()
 class APIResult(object):
     """
     """
-    __slots__ = ('date', 'state', 'city', 'region', 'gender', 'chart', 'places', 'age') + CAUSES
+    __slots__ = ('date', 'state', 'city', 'region', 'gender', 'chart', 'place', 'age') + CAUSES
 
     __defaults = {
         'date': TODAY,
@@ -80,7 +80,7 @@ class APIResult(object):
         'region': None,
         'gender': None,
         'chart': None,
-        'places': None,
+        'place': None,
         'age': False,
         **{cause: 0 for cause in CAUSES},
         }
@@ -160,7 +160,7 @@ class APIResults(object):
         #pylint: disable=no-member
         self.chart = self.get_chart(self.gender, self.age)
         if self.chart in {'chart2', 'chart3'}:
-            data = {}
+            data = {'place': '&'.join(self.places)}
             for age in chart:
                 data['age'] = self.AGE_TABLE[age]
                 for year in chart[age]:
@@ -172,7 +172,7 @@ class APIResults(object):
                         data[cause] = chart[age][year][cause]
                     self.results.append(APIResult(**{**self, **data}))
         elif self.chart == 'chart5':
-            data = {} 
+            data = {'place': '&'.join(self.places)}
             for date in chart:
                 data['date'] = datetime.date.fromisoformat(date)
                 for cause in chart[date]:
