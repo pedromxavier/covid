@@ -273,12 +273,14 @@ class progress:
         else:
             return f"[{'=' * self.STEPS}]"
 
-def log(callback):
-    @wraps(callback)
-    def new_callback(self, *args, **kwargs):
-        if self.log_file.closed:
-            with open(self.LOG_FNAME, 'w') as self.log_file:
+def log(mode='w'):
+    def decor(callback):
+        @wraps(callback)
+        def new_callback(self, *args, **kwargs):
+            if self.log_file.closed:
+                with open(self.LOG_FNAME, mode) as self.log_file:
+                    return callback(self, *args, **kwargs)
+            else:
                 return callback(self, *args, **kwargs)
-        else:
-            return callback(self, *args, **kwargs)
-    return new_callback       
+        return new_callback
+    return decor

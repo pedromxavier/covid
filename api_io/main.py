@@ -15,7 +15,7 @@ from api import API, CAUSES
 import api_lib
 
 class APIIO:
-    CSV_HEADER = ('date', 'state', 'city', 'region', 'gender', 'age', 'places') + CAUSES
+    CSV_HEADER = ('date', 'state', 'city', 'region', 'gender', 'age', 'place') + CAUSES
 
     @classmethod
     def to_csv(cls, fname: str, results: list):

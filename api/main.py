@@ -143,22 +143,10 @@ class APIResults(object):
         self.results = []
         self.success = False
 
-    @staticmethod
-    def get_chart(gender:str, age:bool):
-        if gender is None and age is False:
-            return 'chart5'
-        else:
-            if gender == 'M':
-                return 'chart2'
-            elif gender == 'F':
-                return 'chart3'
-            else: ## age is True and gender is None
-                raise Exception('Isso não deve acontecer. JAMAIS!')
-
     def commit(self, response_data: dict):
         chart = response_data['chart']
         #pylint: disable=no-member
-        self.chart = self.get_chart(self.gender, self.age)
+        self.chart = API.get_chart(self.gender, self.age)
         if self.chart in {'chart2', 'chart3'}:
             data = {'place': '&'.join(self.places)}
             for age in chart:
@@ -218,19 +206,7 @@ class APIQuery(object):
             if name == 'chart': continue
             setattr(self, name, eval(name, {}, locals()))
 
-        self.chart = self.get_chart(gender, age)
-
-    @staticmethod
-    def get_chart(gender:str, age:bool):
-        if gender is None and age is False:
-            return 'chart5'
-        else:
-            if gender == 'M':
-                return 'chart2'
-            elif gender == 'F':
-                return 'chart3'
-            else: ## age is True and gender is None
-                raise RuntimeError('Isso não deve acontecer. JAMAIS!')
+        self.chart = API.get_chart(gender, age)
 
     def __iter__(self):
         return iter(dict(self))
@@ -269,24 +245,24 @@ class APIRequest(object):
     def __repr__(self):
         return f"APIRequest[{self.success}]"
     
-    def get(self, progress=None):
+    def get(self):
         try:
             response = urlopen(self.request)
             raw_text = response.read()
             self.commit(json.loads(raw_text.decode('utf-8')))
         except HTTPError as error:
-            raise APIRequestError(f'Code {error.code} in GET {self.request.full_url}\nError: {error}')
+            API.log(f'Code {error.code} in GET {self.request.full_url}\nError: {error}')
         except Exception as error:
-            raise APIRequestError(f'Code {200} in GET {self.request.full_url}\nError: {error}')
+            API.log(f'Code {200} in GET {self.request.full_url}\nError: {error}')
         finally:
             response.close()
 
-    async def async_get(self, session, progress=None):
+    async def async_get(self, session):
         async with session.get(self.request.full_url) as response:
             try:
                 self.commit(await response.json())
             except Exception as error:
-                raise APIRequestError(f'Code {response.status} in GET {self.request.full_url}\nError: {error}')
+                API.log(f'Code {response.status} in GET {self.request.full_url}\nError: {error}')
             finally:
                 response.close()
 
@@ -296,6 +272,46 @@ class APIRequest(object):
     @property
     def success(self):
         return self.results.success
+
+class APIRequestQueue:
+
+    __slots__ = ('url', 'age', 'dates', 'cities', 'places', 'genders', 'options', 'iterator')
+
+    def __init__(self, url=None, age=None, dates=None, cities=None, places=None, genders=None, **options):
+        self.url = url
+        
+        self.age = age
+        self.dates = dates
+        self.cities = cities
+        self.places = places
+        self.genders = genders
+
+        self.options = options
+
+        self.iterator = iter(self)
+
+    def __next__(self):
+        return next(self.iterator)
+
+    def __iter__(self):
+        data = {'age': self.age}
+        for start_date, end_date in self.dates:
+            data['start_date'] = start_date
+            data['end_date'] = end_date
+            data['date'] = end_date
+            for state, city, city_id in self.cities:
+                data['state'] = state
+                data['city'] = city
+                data['city_id'] = city_id
+                for place_list in self.places:
+                    data['places'] = place_list
+                    for gender in self.genders:
+                        data['gender'] = gender
+                        yield APIRequest(self.url, APIQuery(**data), APIResults(**data), **self.options)
+
+    @property
+    def total(self):
+        return len(self.dates) * len(self.cities) * len(self.places) * len(self.genders) 
 
 class API:
 
@@ -324,11 +340,14 @@ class API:
     ## Possible genders
     GENDERS = GENDERS
 
-    ## Log
-    LOG_FNAME = 'api.log'
-
     ## Default block size
     BLOCK_SIZE = 1024
+
+    ## Logging
+    LOG_FNAME = 'api.log'
+    log_file = open(LOG_FNAME, 'w') ## Creates file if it does not exists, erases previous if exists
+    log_file.close()
+    log_lock = threading.Lock()
 
     ## Request
     @property
@@ -361,11 +380,6 @@ class API:
         ## Request block size
         self.block_size = self.kwargs['block']
 
-        ## Logging
-        self.log_file = open(self.LOG_FNAME, 'a') ## Creates file if it does not exists
-        self.log_file.close()
-        self.log_lock = threading.Lock()
-
         ## Cache results
         self.cache = self.kwargs_cache(**kwargs)
 
@@ -373,10 +387,7 @@ class API:
         self.cookie_jar = CookieJar()
 
         ## Request Queue
-        if self.cache and os.path.exists(self.cache):
-            self.requests = api_lib.pkload(self.cache)
-        else:
-            self.requests = list(self.build_requests(**self.kwargs))
+        self.requests = self.get_request_queue(**self.kwargs)
 
         ## Results
         self.results = []
@@ -387,9 +398,12 @@ class API:
             self.semaphore = asyncio.Semaphore(self.BLOCK_SIZE)
             self.timeout = aiohttp.ClientTimeout(total=(self.total * 5))
 
-    def log(self, s: str):
+    @classmethod
+    def log(cls, s: str):
         header = f"[{datetime.datetime.now():%Y-%m-%d %H:%M:%S}]"
-        with self.log_lock: print(header, s, file=self.log_file)
+        with cls.log_lock: 
+            with open(cls.LOG_FNAME, 'a') as cls.log_file:
+                print(header, s, file=cls.log_file)
 
     def login(self):
         """ Realiza o login na plataforma dos cartórios.
@@ -445,6 +459,18 @@ class API:
             self.loop.run_until_complete(asyncio.ensure_future(self._async_run(requests)))
     
     ## -- KWARGS --
+    @staticmethod
+    def get_chart(gender:str, age:bool):
+        if gender is None and age is False:
+            return 'chart5'
+        else:
+            if gender == 'M':
+                return 'chart2'
+            elif gender == 'F':
+                return 'chart3'
+            else: ## age is True and gender is None
+                raise RuntimeError('Isso não deve acontecer. JAMAIS!')
+
     def kwargs_places(self, **kwargs) -> list:
         """
         """
@@ -581,7 +607,7 @@ class API:
             else:
                 raise ValueError(f'Cidade não cadastrada: `{city_name} ({state})`.')
 
-    def build_requests(self, **kwargs) -> list:
+    def get_request_queue(self, **kwargs) -> list:
         """
         """
         ## data lists
@@ -591,62 +617,25 @@ class API:
         places = self.kwargs_places(**kwargs)
         genders = self.kwargs_gender(**kwargs)
 
-        total = len(dates) * len(cities) * len(places) * len(genders)
+        return APIRequestQueue(
+            url=self.API_URL,
+            age=age,
+            dates=dates,
+            cities=cities,
+            places=places,
+            genders=genders,
+            headers=self.request_headers
+            )
 
-        print(f'Total: {total}')
-
-        data = {'age': age}
-        for start_date, end_date in dates:
-            data['start_date'] = start_date
-            data['end_date'] = end_date
-            data['date'] = end_date
-            for state, city, city_id in cities:
-                data['state'] = state
-                data['city'] = city
-                data['city_id'] = city_id
-                for place_list in places:
-                    data['places'] = place_list
-                    for gender in genders:
-                        data['gender'] = gender
-                        yield APIRequest(self.API_URL, APIQuery(**data), APIResults(**data), headers=self.request_headers)
-
-    @api_lib.log
-    @api_lib.standby_lock
     def get(self, **kwargs) -> list:
         """
         """
         api_lib.kwget(kwargs, self.kwargs)
-        attempts = 1
-        while True:
-            try:
-                print(f'tentativa [{attempts}]')
-                self._get(**kwargs)
-                break
-            except KeyboardInterrupt:
-                self.log('Keyborad Interrupt')
-                break
-            except APIRequestError as error:
-                self.log(error)
-                break
-            finally:
-                ## skip line in prompt
-                print()
-                ## cache actual requests
-                self.cache_requests()
-                ## increment attempt counter
-                attempts += 1
+        try:
+            yield from self._get(**kwargs)
+        except KeyboardInterrupt:
+            self.log('Keyboard Interrupt')
 
-        ## results <- requests
-        self.results = self.get_results()
-            
-        return self.results
-
-    def get_results(self):
-        results = []
-        for request in self.requests:
-            results.extend(request.results.results)
-        return results
-    
     def _get(self, **kwargs) -> list:
         """
         """
@@ -654,37 +643,48 @@ class API:
         self.login()
         
         ## Gather
-        self._gather(**kwargs)
-       
-    def _gather(self, **kwargs) -> bool:
+        return self._gather(**kwargs)
+    
+    def _gather(self, **kwargs):
         """
         """
         self.log('START API._gather')
-        self.progress = api_lib.progress(self._total, self._done)
+        self.progress = api_lib.progress(self.requests.total)
         for block in self._blocks():
-            if kwargs['sync']:
-                self.sync_run(block)
-            else:
-                self.async_run(block)
+            while block:
+                try:
+                    if kwargs['sync']:
+                        self.sync_run(block)
+                    else:
+                        self.async_run(block)
+                except APIRequestError as error:
+                    self.log(error)
+                finally:
+                    results = []
+                    pending = []
 
-    def cache_requests(self):
-        if self.cache:
-            api_lib.pkdump(self.cache, self.requests)
-            print(f"Requests salvos no arquivo de cache '{self.cache}'")
+                    for request in block:
+                        if request.success:
+                            results.extend(request.results.results)
+                        else:
+                            pending.append(request)
+                    
+                    yield from results
+                    
+                    block = pending
 
     def _blocks(self):
-        """ This function divides the pending requests into
+        """ This generator divides the pending requests into blocks
+            of size `self.block_size`
         """
-        ## Collect pending requests
-        requests = [req for req in self.requests if not req.success]
-
         ## Returns the whole batch
         if self.block_size is None:
-            yield requests
+            yield self.requests
             return
+
         ## Splits the batch into blocks
-        for i in range(0, len(requests), self.block_size):
-            yield requests[i:i+self.block_size]
+        for _ in range(0, self.total, self.block_size):
+            yield [next(self.requests) for _ in range(self.block_size)]
     
     ## Progress Properties
     @property
@@ -696,7 +696,7 @@ class API:
     
     @property
     def _total(self) -> int:
-        return len(self.requests)
+        return self.requests.total
     
     @property
     def done(self):
@@ -707,7 +707,7 @@ class API:
 
     @property
     def _done(self) -> int:
-        return sum([req.success for req in self.requests])
+        return 0
     
     @property
     def rate(self) -> float:
