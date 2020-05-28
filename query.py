@@ -42,10 +42,3 @@ if __name__ == '__main__':
     part = int(sys.argv[1])
     total = int(sys.argv[2])
     print(f'Running query {part}/{total}')
-    with open(os.devnull, 'w') as devnull:
-        sys_stdout = sys.stdout
-        sys.stdout = devnull
-        try:
-            main(part, total)
-        finally:
-            sys.stdout = sys_stdout
