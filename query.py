@@ -41,6 +41,7 @@ def main(part: int=1, total: int=1):
 if __name__ == '__main__':
     part = int(sys.argv[1])
     total = int(sys.argv[2])
+    print(f'Running query {part}/{total}')
     with open(os.devnull, 'w') as devnull:
         sys_stdout = sys.stdout
         sys.stdout = devnull
