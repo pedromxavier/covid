@@ -225,9 +225,10 @@ class APIQuery(object):
 
 class APIRequestError(Exception):
 
-    def __init__(self, msg: str):
+    def __init__(self, msg: str, code: int):
         Exception.__init__(self, msg)
         self.msg = msg
+        self.code = code
     
     def __str__(self):
         return self.msg
@@ -373,9 +374,12 @@ class API:
             'age': False,
             'cache': False,
             'sync' : not ASYNC_MODE,
-            'block': self.BLOCK_SIZE
+            'block': self.BLOCK_SIZE,
+            'track': False,
         })
         self.kwargs = kwargs
+
+        self.track = self.kwargs['track']
 
         ## Request block size
         self.block_size = self.kwargs['block']
@@ -632,24 +636,27 @@ class API:
         """
         api_lib.kwget(kwargs, self.kwargs)
         try:
-            yield from self._get(**kwargs)
+            yield from self._gather(**kwargs)
         except KeyboardInterrupt:
             self.log('Keyboard Interrupt')
-
-    def _get(self, **kwargs) -> list:
-        """
-        """
-        ## Login
-        self.login()
-        
-        ## Gather
-        return self._gather(**kwargs)
     
+    def login_retry(self):
+        while True:
+            try:
+                self.login()
+                break
+            except HTTPError:
+                continue
+
     def _gather(self, **kwargs):
         """
         """
         self.log('START API._gather')
-        self.progress = api_lib.progress(self.requests.total)
+        self.progress = api_lib.progress(self.requests.total, track=self.track)
+
+        ## Login
+        self.login_retry()
+
         for block in self._blocks():
             while block:
                 try:
@@ -657,8 +664,6 @@ class API:
                         self.sync_run(block)
                     else:
                         self.async_run(block)
-                except APIRequestError as error:
-                    self.log(error)
                 finally:
                     results = []
                     pending = []
