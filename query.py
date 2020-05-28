@@ -3,6 +3,7 @@ import api_io
 import datetime
 
 import sys
+import os
 
 def main(part: int=1, total: int=1):
     if part == 1 and total == 1:
@@ -40,4 +41,10 @@ def main(part: int=1, total: int=1):
 if __name__ == '__main__':
     part = int(sys.argv[1])
     total = int(sys.argv[2])
-    main(part, total)
+    with open(os.devnull, 'w') as devnull:
+        sys_stdout = sys.stdout
+        sys.stdout = devnull
+        try:
+            main(part, total)
+        finally:
+            sys.stdout = sys_stdout
