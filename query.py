@@ -26,7 +26,6 @@ def main(part: int=1, total: int=1):
         gender=all, ## busca para cada sexo
         age=True,  ## busca por faixa etária
         places=all, ## busca dados para cada local possível
-        cache='complete-cache' ## IMPORTANTE. Arquivo para cache dos resultados
         )
 
     ## Resultados
@@ -35,7 +34,7 @@ def main(part: int=1, total: int=1):
     print('resultados rápidos! (brincadeira, é um gerador)')
 
     print('Escrevendo csv, o monstro desperta')
-    api_io.APIIO.to_csv('complete-results', results)
+    api_io.APIIO.to_csv(f'complete-results-{part}-{total}', results)
     print('FIM')
 
 if __name__ == '__main__':
