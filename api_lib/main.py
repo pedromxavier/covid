@@ -179,7 +179,10 @@ class progress:
 
     STEPS = 20
 
-    def __init__(self, total: int, start: int=0):
+    def __init__(self, total: int, start: int=0, track=False):
+        ## Track as output
+        self.track = track
+
         ## Total steps
         self.total = total
         self.start = start
@@ -206,7 +209,7 @@ class progress:
             with self.lock:
                 self.done += 1
             self.total_time = clock() - self.start_time
-            print(self.string, self.padding, end=self.end)
+            if self.track: print(self.string, self.padding, end=self.end)
             self.last_length = self.length
         else:
             raise StopIteration
