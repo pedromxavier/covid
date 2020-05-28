@@ -42,3 +42,4 @@ if __name__ == '__main__':
     part = int(sys.argv[1])
     total = int(sys.argv[2])
     print(f'Running query {part}/{total}')
+    main(part, total)
