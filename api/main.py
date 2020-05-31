@@ -739,9 +739,9 @@ class APIClient:
             try:
                 self.login()
                 break
-            except Exception:
-                API.log('Error in Login')
-                time.sleep(1)
+            except Exception as error:
+                API.log(f'Error in Login: {error}')
+                time.sleep(5)
                 continue
         self.request_queue.set_options(headers=self.request_headers)
 
