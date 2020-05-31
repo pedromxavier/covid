@@ -240,6 +240,8 @@ class APIRequest(object):
             try:
                 if response.status == 200:
                     self.commit(await response.json())
+                elif response.status == 500:
+                    pass
                 else:
                     API.log(f'Code {response.status} in GET')
             except Exception:
