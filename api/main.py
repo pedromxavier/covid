@@ -624,7 +624,7 @@ class API:
             print('Finished all processes.')
             self.progress.finish()
         except KeyboardInterrupt:
-            print('Aborted.')
+            print('\nAborted.')
             return
         finally:
             for process in processes:
