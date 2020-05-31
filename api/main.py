@@ -45,7 +45,7 @@ import api_db
 import api_io
 from api_constants import CAUSES, STATES, ID_TABLE, YEARS, GENDERS, PLACES
 from api_constants import BEGIN, TODAY, ONE_DAY
-from api_constants import BLOCK_SIZE
+from api_constants import BLOCK_SIZE, CPU_COUNT
 
 class APIResult(object):
     """
@@ -112,6 +112,8 @@ class APIResults(object):
         'N/I': None
         }
 
+    CAUSES = CAUSES
+
     def __init__(self, **kwargs):
         for name in self.__slots__:
             if name in ('results', 'success'): continue
@@ -138,8 +140,11 @@ class APIResults(object):
                         data['date'] = datetime.date(int(year), self.date.month, self.date.day)
                     except ValueError:
                         continue
-                    for cause in chart[age][year]:
-                        data[cause] = chart[age][year][cause]
+                    for cause in self.CAUSES:
+                        if cause in chart[age][year]:
+                            data[cause] = chart[age][year][cause]
+                        else:
+                            data[cause] = 0
                     self.results.append(APIResult(**{**self, **data}))
         elif self.chart == 'chart5':
             data = {'place': '&'.join(self.places)}
@@ -224,18 +229,21 @@ class APIRequest(object):
             raw_text = response.read()
             self.commit(json.loads(raw_text.decode('utf-8')))
         except HTTPError as error:
-            raise APIRequestError(error, error.code)
+            API.log(error)
         except Exception as error:
-            raise APIRequestError(error, 200)
+            API.log(error)
         finally:
             response.close()
 
     async def async_get(self, session):
         async with session.get(self.request.full_url) as response:
             try:
-                self.commit(await response.json())
-            except Exception as error:
-                raise APIRequestError(error, response.status)
+                if response.status == 200:
+                    self.commit(await response.json())
+                else:
+                    API.log(f'Code {response.status} in GET')
+            except Exception:
+                API.log(f'Code {response.status} in GET with Error')
             finally:
                 response.close()
 
@@ -286,7 +294,7 @@ class APIRequestQueue:
             ## place
             i, j = divmod(i, self.shape['places'])
             place_list = self.places[j]
-            data['palces'] = place_list
+            data['places'] = place_list
 
             ## city
             i, j = divmod(i, self.shape['cities'])
@@ -337,7 +345,7 @@ class API:
                 age=False, 
                 sync=not ASYNC_MODE,
                 block_size=BLOCK_SIZE,
-                threads=1
+                threads=CPU_COUNT,
                 ):
         """ This class is intended to:
             - Prepare and enqueue request given the query specified in 
@@ -352,7 +360,7 @@ class API:
             'age': age,
             'sync' : sync,
             'block_size': block_size,
-            'threads': os.cpu_count(),
+            'threads': threads,
         }
         ## Request Queue
         self.requests = self.get_request_queue(**self.kwargs)
@@ -580,11 +588,11 @@ class API:
 
     ## Multiprocessing things
     @staticmethod
-    def target_func(section_num: int, section: range, requests: APIRequestQueue, progress: api_lib.Progress, sync: bool, block_size: int):
+    def target_func(section_num: int, section: range, request_queue: APIRequestQueue, progress: api_lib.Progress, sync: bool, block_size: int):
         client = APIClient(
-            requests=(requests[j] for j in section),
+            section=section,
+            request_queue=request_queue,
             progress=progress,
-            total=len(section),
             sync=sync,
             block_size=block_size
         )
@@ -597,42 +605,52 @@ class API:
     def get(self) -> None:
         """
         """
-        processes = [
-            mp.Process(
-                target=self.target_func, 
-                args=(section_num, section, self.requests, self.progress, self.sync, self.block_size)
-            ) 
-            for section_num, section in self.sections
-        ]
+        processes = []
+        for section_num, section in self.sections:
+            processes.append(
+                mp.Process(
+                    target=self.target_func, 
+                    args=(section_num, section, self.requests, self.progress, self.sync, self.block_size)
+                )
+            )
 
         ## Starts displaying progress bar
-        track = self.progress.track()
-        for process in processes:
-            process.start()
-        for process in processes:
-            process.join()
-        track.join()
+        try:
+            self.progress.start()
+            for process in processes:
+                process.start()
+            for process in processes:
+                process.join()
+            print('Finished all processes.')
+            self.progress.finish()
+        except KeyboardInterrupt:
+            print('Aborted.')
+            return
+        finally:
+            for process in processes:
+                if process.is_alive():
+                    process.kill()
 
         print('All processes finished. Writing results.')
 
-        lines = []
-        for section in range(self.threads):
-            with open(f'.results-{section}', 'r') as file:
-                header = file.readline()
-                lines.extend(file)
+        fnames = [f'.results-{section_num}.csv'for section_num in range(self.threads)]
+        api_io.APIIO.join_csv('results.csv', fnames, delete_input=True)
 
-        with open(f'results.csv', 'w') as file:
-            file.write(header)
-            file.writelines(lines)
         print('Finished.')
 
     def _sections(self):
         """ This generator simply divides range(0, self.total) into sections of size `self.threads`
         """
+        if self.threads == 1:
+            yield (0, range(self.total))
+            return
+
         size = self.total // self.threads
-        for i in range(self.threads):
+        more = self.total % self.threads
+        for i in range(self.threads - 1):
             yield (i, range(i * size, (i + 1) * size))
-        yield (size, range(self.threads * size, self.total))
+        else:
+            yield (self.threads - 1, range((self.threads - 1) * size,  self.threads * size + more))
         
     @property
     def sections(self):
@@ -658,20 +676,23 @@ class APIClient:
 
     def __init__(
             self,
-            requests: object,
+            section: range,
+            request_queue: APIRequestQueue,
             progress: api_lib.Progress,
-            total: int,
             sync: bool=not ASYNC_MODE,
             block_size: int=1024,
             ):
-        ## Requests - This is a generator!!
-        self.requests = requests 
+        ## Section
+        self.section = iter(section)
+
+        ## Requests
+        self.request_queue = request_queue
 
         ## Progress tracker
         self.progress = progress
 
         ## Total requests
-        self.total = total
+        self.total = len(section)
 
         ## Cookies
         self.cookie_jar = CookieJar()
@@ -721,6 +742,7 @@ class APIClient:
             except HTTPError:
                 time.sleep(1)
                 continue
+        self.request_queue.set_options(headers=self.request_headers)
 
     def get(self) -> object:
         """
@@ -733,7 +755,7 @@ class APIClient:
                         self.sync_run(block)
                     else:
                         self.async_run(block)
-                except APIRequestError as error:
+                except Exception as error:
                     API.log(error)
                 finally:
                     results = []
@@ -746,6 +768,7 @@ class APIClient:
                             pending.append(request)
                     else:
                         block = pending
+                        self.progress.update()
                         yield from results
 
     ## Synchronous GET methods
@@ -785,11 +808,13 @@ class APIClient:
         """
         ## Returns the whole batch
         if self.block_size is None:
-            yield [next(self.requests) for _ in range(self.total)]
+            yield [self.request_queue[next(self.section)] for _ in range(self.total)]
         else:
             ## Splits the batch into blocks
-            for _ in range(0, self.total, self.block_size):
-                yield [next(self.requests) for _ in range(self.block_size)]
+            size = self.total // self.block_size
+            for _ in range(size):
+                yield [self.request_queue[next(self.section)] for _ in range(self.block_size)]
+            yield [self.request_queue[next(self.section)] for _ in range(self.total - size * self.block_size)]
     
     @property
     def blocks(self):

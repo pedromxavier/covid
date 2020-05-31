@@ -5,13 +5,13 @@ import threading
 class Progress:
 
     __slots__ = (
-        'text', '__lapse', '__total', '__start', '__lock', '__done', '_done',
-        '__start_time', '__last_length', '__uptodate',
+        'text', '__lapse', '__total', '__lock', '__done', '_done',
+        '__start_time', '__last_length', '__finished'
     )
 
     STEPS = 20
 
-    def __init__(self, total: int, start: int=0, lapse: float=None, text: str='Progresso: '):
+    def __init__(self, total: int, lapse: float=None, text: str='Progresso: '):
         ## Some text
         self.text = text
 
@@ -20,20 +20,18 @@ class Progress:
 
         ## Total steps
         self.__total = total
-        self.__start = start
 
         ## Lock for progress track
         self.__lock = mp.Lock()
         self.__done = mp.Value('i', 0)
-        self._done = self.__done.value
 
         self.__start_time = clock()
 
         ## Previous output string lenght
         self.__last_length = 0
 
-        ## Track need for update in done
-        self.__uptodate = False
+        ## Finished
+        self.__finished = False
         
         print(self, end='\r')
 
@@ -45,17 +43,12 @@ class Progress:
     def total(self):
         return self.__total
 
-    @property
     def start(self):
-        return self.__start
+        self.__start_time = clock()
 
     @property
     def done(self):
-        if not self.__uptodate:
-            with self.lock:
-                self._done = self.__done.value
-            self.__uptodate = True
-        return self._done
+        with self.lock: return self.__done.value
 
     @property
     def start_time(self):
@@ -67,32 +60,42 @@ class Progress:
 
     @property
     def finished(self):
-        return (self.start + self.done) >= self.total
+        return self.__finished or (self.done >= self.total)
 
     def __next__(self):
         if not self.finished:
             with self.lock: self.__done.value += 1
-            self.__uptodate = False
         else:
             raise StopIteration
 
     def display(self):
+        self.start()
         while not self.finished:
-            print(self, self.padding, end='\r')
-            self.__last_length = self.length
+            self.update()
         else:
-            print(self, self.padding, end='\n')
-            print(f'Time elapsed: {self.total_time}')
+            self.update()
+            print(f'Time elapsed: {self.total_time:.1f}s')
+
+    def finish(self):
+        self.__finished = True
             
     def track(self) -> threading.Thread:
         thread = threading.Thread(target=self.display, args=())
         thread.start()
         return thread
+
+    @property
+    def end(self):
+        return '\n' if self.finished else '\r'
+
+    def update(self):
+        print(self, self.padding, end=self.end)
+        self.__last_length = self.length
         
     def __str__(self):
         """ output string;
         """
-        return f'{self.text} {self.bar} {self.start + self.done}/{self.total} {100 * self.ratio:2.2f}% eta: {self.eta} rate: {self.rate:.2f}/s'
+        return f'{self.text} {self.bar} {self.done}/{self.total} {100 * self.ratio:2.2f}% eta: {self.eta} rate: {self.rate:.2f}/s'
 
     @property
     def padding(self):
@@ -110,7 +113,7 @@ class Progress:
     def ratio(self) -> float:
         """ progress ratio; value in [0, 1]
         """
-        return (self.start + self.done) / self.total
+        return self.done / self.total
 
     @property
     def rate(self):
@@ -122,7 +125,7 @@ class Progress:
     def eta(self) -> str:
         if not self.done:
             return "?"
-        s = (self.total_time / self.done) * (self.total - (self.start + self.done))
+        s = (self.total_time / self.done) * (self.total - self.done)
         if s >= 60:
             m, s = divmod(s, 60)
             if m >= 60:

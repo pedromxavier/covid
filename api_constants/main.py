@@ -1,5 +1,6 @@
 import api_lib
 import datetime
+import os
 
 ## Constants
 ## Possible causes
@@ -30,3 +31,6 @@ STATES, ID_TABLE = api_lib.load_cities()
 
 ## Default Block size
 BLOCK_SIZE = 1024
+
+## Processors
+CPU_COUNT = os.cpu_count()

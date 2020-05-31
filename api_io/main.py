@@ -9,6 +9,7 @@
 ## Standard Library
 import csv
 import json
+import os
 
 ## Local
 import api_lib
@@ -29,6 +30,22 @@ class APIIO:
             for result in results:
                 row = {key : result[key] for key in cls.CSV_HEADER}
                 writer.writerow(row)
+
+    @classmethod
+    def join_csv(cls, output_fname:str, fnames: list, delete_input=False):
+        lines = []
+        for fname in fnames:
+            with open(fname, 'r') as file:
+                header = file.readline()
+                lines.extend(file)
+
+        with open(output_fname, 'w') as file:
+            file.write(header)
+            file.writelines(lines)
+
+        if delete_input:
+            for fname in fnames:
+                os.remove(fname)
 
     @classmethod
     def union(cls, results: list, **kwargs) -> list:
