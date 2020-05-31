@@ -759,7 +759,6 @@ class APIClient:
                         self.sync_run(requests)
                     else:
                         self.async_run(requests)
-                    ## self.progress.update()
                 except Exception as error:
                     API.log(error)
                 finally:
@@ -768,6 +767,7 @@ class APIClient:
                     for request in requests:
                         if request.success:
                             results.extend(request.results)
+                            next(self.progress)
                         else:
                             pending.append(request)
                     else:
@@ -781,7 +781,6 @@ class APIClient:
         """ Dispara o request de maneira sequencial
         """
         request.get()
-        if request.success: next(self.progress)
 
     def sync_run(self, requests: list):
         """ Dispara os requests de maneira sequencial
@@ -793,14 +792,13 @@ class APIClient:
         """
         """
         await request.async_get(session)
-        if request.success: next(self.progress)
 
     async def _async_run(self, requests: list):
         """ Dispara os requests de maneira assíncrona.
         """
         async with aiohttp.ClientSession(headers=self.request_headers) as session:
             tasks = [asyncio.ensure_future(self.async_request(request, session)) for request in requests]
-            await asyncio.gather(*tasks)
+            await asyncio.wait(tasks)
 
     def async_run(self, requests: list):
         """ Dispara os requests de maneira assíncrona.
