@@ -4,7 +4,8 @@ from http.cookiejar import CookieJar
 from urllib.request import Request, urlopen
 from urllib.parse import urlencode
 from urllib.error import HTTPError
-from functools import wraps
+from functools import wraps, reduce
+import ctypes
 import sys
 import os
 import asyncio
@@ -14,6 +15,7 @@ import time
 import datetime
 import itertools
 import threading
+import multiprocessing as mp
 import warnings
 import pickle
 
@@ -40,33 +42,10 @@ ASYNC_MODE = ASYNC_LIB and (not IN_JUPYTER or JUPYTER_ASYNC_LIB)
 ## Local
 import api_lib
 import api_db
-
-## Constants
-## Possible causes
-CAUSES = (
-    'COVID',
-    'SRAG',
-    'PNEUMONIA',
-    'INSUFICIENCIA_RESPIRATORIA',
-    'SEPTICEMIA',
-    'INDETERMINADA',
-    'OUTRAS'
-)
-
-## Possible places
-PLACES = {'HOSPITAL', 'DOMICILIO', 'VIA_PUBLICA', 'AMBULANCIA', 'OUTROS'}
-
-## Time constants
-BEGIN = datetime.date(2020, 1, 1)
-TODAY = datetime.date.today()
-ONE_DAY = datetime.timedelta(days=1)
-YEARS = ('2019', '2020')
-
-## Gender
-GENDERS = {"M", "F"}
-
-## City/State table
-STATES, ID_TABLE = api_lib.load_cities()
+import api_io
+from api_constants import CAUSES, STATES, ID_TABLE, YEARS, GENDERS, PLACES
+from api_constants import BEGIN, TODAY, ONE_DAY
+from api_constants import BLOCK_SIZE
 
 class APIResult(object):
     """
@@ -143,6 +122,9 @@ class APIResults(object):
         self.results = []
         self.success = False
 
+    def __iter__(self):
+        return iter(self.results)
+
     def commit(self, response_data: dict):
         chart = response_data['chart']
         #pylint: disable=no-member
@@ -178,16 +160,6 @@ class APIResults(object):
 
 class APIQuery(object):
     """
-        Example Query:
-        json {
-            "start_date":"2020-01-01",
-            "end_date":"2020-05-22",
-            "state":"RJ",
-            "city_id":"4646",
-            "chart":"chart3",
-            "gender":"F",
-            "places[]":["HOSPITAL","DOMICILIO","VIA_PUBLICA","OUTROS"]
-        }
     """
 
     __slots__ = ('start_date', 'end_date', 'state', 'city_id', 'gender', 'chart', 'places')
@@ -252,9 +224,9 @@ class APIRequest(object):
             raw_text = response.read()
             self.commit(json.loads(raw_text.decode('utf-8')))
         except HTTPError as error:
-            API.log(f'Code {error.code} in GET {self.request.full_url}\nError: {error}')
+            raise APIRequestError(error, error.code)
         except Exception as error:
-            API.log(f'Code {200} in GET {self.request.full_url}\nError: {error}')
+            raise APIRequestError(error, 200)
         finally:
             response.close()
 
@@ -263,7 +235,7 @@ class APIRequest(object):
             try:
                 self.commit(await response.json())
             except Exception as error:
-                API.log(f'Code {response.status} in GET {self.request.full_url}\nError: {error}')
+                raise APIRequestError(error, response.status)
             finally:
                 response.close()
 
@@ -276,57 +248,66 @@ class APIRequest(object):
 
 class APIRequestQueue:
 
-    __slots__ = ('url', 'age', 'dates', 'cities', 'places', 'genders', 'options', 'iterator')
+    __slots__ = ('url', 'age', 'dates', 'cities', 'places', 'genders', 'shape', 'total', 'options')
 
     def __init__(self, url=None, age=None, dates=None, cities=None, places=None, genders=None, **options):
         self.url = url
         
+        ## query param sources
         self.age = age
         self.dates = dates
         self.cities = cities
         self.places = places
         self.genders = genders
 
+        self.shape = {
+            'dates': len(self.dates),
+            'cities': len(self.cities),
+            'places': len(self.places),
+            'genders': len(self.genders)
+        }
+        self.total = reduce(lambda x, y: x * y, self.shape.values())
+
         self.options = options
 
-        self.iterator = iter(self)
+    def set_options(self, **options):
+        self.options = options
 
-    def __next__(self):
-        return next(self.iterator)
+    def __getitem__(self, i: int):
+        if not (0 <= i < self.total):
+            raise IndexError(f'Out of bounds for Request Queue with lenght {self.total}')
+        else:
+            data = {'age': self.age}
+            ## gender
+            i, j = divmod(i, self.shape['genders'])
+            gender = self.genders[j]
+            data['gender'] = gender
 
-    def __iter__(self):
-        data = {'age': self.age}
-        for start_date, end_date in self.dates:
+            ## place
+            i, j = divmod(i, self.shape['places'])
+            place_list = self.places[j]
+            data['palces'] = place_list
+
+            ## city
+            i, j = divmod(i, self.shape['cities'])
+            state, city, city_id = self.cities[j]
+            data['state'] = state
+            data['city'] = city
+            data['city_id'] = city_id
+
+            ## date
+            i, j = divmod(i, self.shape['dates'])
+            start_date, end_date = self.dates[j]
             data['start_date'] = start_date
             data['end_date'] = end_date
             data['date'] = end_date
-            for state, city, city_id in self.cities:
-                data['state'] = state
-                data['city'] = city
-                data['city_id'] = city_id
-                for place_list in self.places:
-                    data['places'] = place_list
-                    for gender in self.genders:
-                        data['gender'] = gender
-                        yield APIRequest(self.url, APIQuery(**data), APIResults(**data), **self.options)
 
-    @property
-    def total(self):
-        return len(self.dates) * len(self.cities) * len(self.places) * len(self.genders) 
+            return APIRequest(self.url, APIQuery(**data), APIResults(**data), **self.options)
 
 class API:
 
     ## API constants
     API_URL = r'https://transparencia.registrocivil.org.br/api/covid-covid-registral'
-
-    ## Login constants
-    LOGIN_URL = r"https://transparencia.registrocivil.org.br/registral-covid"
-    XSRF_TOKEN = ""
-    LOGIN_HEADERS = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:76.0) Gecko/20100101 Firefox/76.0",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache"
-    }
 
     ## City information
     UPDATED_CITIES = False
@@ -341,66 +322,55 @@ class API:
     ## Possible genders
     GENDERS = GENDERS
 
-    ## Default block size
-    BLOCK_SIZE = 1024
-
     ## Logging
     LOG_FNAME = 'api.log'
     log_file = open(LOG_FNAME, 'w') ## Creates file if it does not exists, erases previous if exists
     log_file.close()
     log_lock = threading.Lock()
 
-    ## Request
-    @property
-    def request_headers(self):
-        return {
-            "X-XSRF-TOKEN" : self.XSRF_TOKEN,
-            "User-Agent" : "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:76.0) Gecko/20100101 Firefox/76.0",
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache"
-        }
-
-    def __init__(self, **kwargs):
-        """
+    def __init__(self, 
+                date=None,
+                state=None,
+                city=None,
+                places=None,
+                gender=None,
+                age=False, 
+                sync=not ASYNC_MODE,
+                block_size=BLOCK_SIZE,
+                threads=1
+                ):
+        """ This class is intended to:
+            - Prepare and enqueue request given the query specified in 
         """
         ## default keyword arguments
-        api_lib.kwget(kwargs, {
-            'cumulative' : True, ##
-            'date' : None,
-            'state' : None,
-            'city' : None,
-            'places' : None,
-            'gender' : None,
-            'age': False,
-            'cache': False,
-            'sync' : not ASYNC_MODE,
-            'block': self.BLOCK_SIZE,
-            'track': False,
-        })
-        self.kwargs = kwargs
-
-        self.track = self.kwargs['track']
-
-        ## Request block size
-        self.block_size = self.kwargs['block']
-
-        ## Cache results
-        self.cache = self.kwargs_cache(**kwargs)
-
-        ## Cookies
-        self.cookie_jar = CookieJar()
-
+        self.kwargs = {
+            'date': date,
+            'state': state,
+            'city': city,
+            'places' : places,
+            'gender' : gender,
+            'age': age,
+            'sync' : sync,
+            'block_size': block_size,
+            'threads': os.cpu_count(),
+        }
         ## Request Queue
         self.requests = self.get_request_queue(**self.kwargs)
 
+        ## Threads
+        self.threads = self.kwargs_threads(**self.kwargs)
+
+        ## Sync
+        self.sync = self.kwargs_sync(**self.kwargs)
+
+        ## Block size
+        self.block_size = self.kwargs_block_size(**self.kwargs)
+
+        ## Progress
+        self.progress = api_lib.Progress(self.total, lapse=1.0)
+
         ## Results
         self.results = []
-
-        ## Asynchronous Requests
-        if not self.kwargs['sync']:
-            self.loop = asyncio.get_event_loop()
-            self.semaphore = asyncio.Semaphore(self.BLOCK_SIZE)
-            self.timeout = aiohttp.ClientTimeout(total=(self.total * 5))
 
     @classmethod
     def log(cls, s: str):
@@ -408,59 +378,6 @@ class API:
         with cls.log_lock: 
             with open(cls.LOG_FNAME, 'a') as cls.log_file:
                 print(header, s, file=cls.log_file)
-
-    def login(self):
-        """ Realiza o login na plataforma dos cartórios.
-            Isso é feito extraindo o 'XSRF-Token' dos Cookies e adicionando aos headers.
-        """
-        try:
-            ## Make request to page
-            ans, req = api_lib.request(self.LOGIN_URL, headers=self.LOGIN_HEADERS)
-            
-            ## Extract Token from Cookies
-            self.cookie_jar.extract_cookies(ans, req)
-            
-            ## Gets first occurence of the Token in the cookie jar
-            self.XSRF_TOKEN = next(cookie for cookie in self.cookie_jar if cookie.name == "XSRF-TOKEN").value
-            print(f'Autenticado')
-        except Exception as error:
-            print(f'Falha no login')
-            raise error
-    
-    ## Synchronous GET methods
-    def sync_request(self, request: APIRequest):
-        """ Dispara o request de maneira sequencial
-        """
-        request.get()
-        next(self.progress)
-
-    def sync_run(self, requests: list):
-        """ Dispara os requests de maneira sequencial
-        """
-        for request in requests: self.sync_request(request)
-
-    ## Asynchronous GET methods
-    async def async_request(self, request: APIRequest, session):
-        """
-        """
-        await request.async_get(session)
-        next(self.progress)
-
-
-    async def _async_run(self, requests: list):
-        """ Dispara os requests de maneira assíncrona.
-        """
-        async with aiohttp.ClientSession(timeout=self.timeout, headers=self.request_headers) as session:
-            tasks = [asyncio.ensure_future(self.async_request(request, session)) for request in requests]
-            await asyncio.wait(tasks)
-
-    def async_run(self, requests: list):
-        """ Dispara os requests de maneira assíncrona.
-        """
-        if not ASYNC_MODE:
-            raise ImportError("Falha ao obter as bibliotecas necessárias. Requisições assíncronas indisponíveis.")
-        else:
-            self.loop.run_until_complete(asyncio.ensure_future(self._async_run(requests)))
     
     ## -- KWARGS --
     @staticmethod
@@ -474,6 +391,41 @@ class API:
                 return 'chart3'
             else: ## age is True and gender is None
                 raise RuntimeError('Isso não deve acontecer. JAMAIS!')
+
+    def kwargs_threads(self, **kwargs) -> int:
+        """
+        """
+        threads_kwarg = kwargs['threads']
+        if type(threads_kwarg) is not int:
+            raise TypeError('O número de threads deve ser um inteiro positivo.')
+        elif threads_kwarg < 1:
+            raise ValueError('O número de threads deve ser um inteiro positivo.')
+        elif threads_kwarg > os.cpu_count():
+            warnings.warn('Número de threads maior do que o número de processadores.', stacklevel=2)
+        return threads_kwarg
+
+    def kwargs_block_size(self, **kwargs) -> int:
+        """
+        """
+        block_size_kwarg = kwargs['block_size']
+        if block_size_kwarg is None:
+            return block_size_kwarg
+        elif type(block_size_kwarg) is not int:
+            raise TypeError('block_size is not int')
+        elif block_size_kwarg <= 0:
+            raise ValueError('block_size must be positive')
+        else:
+            return block_size_kwarg
+
+
+    def kwargs_sync(self, **kwargs) -> bool:
+        """
+        """
+        sync_kwarg = kwargs['sync']
+        if type(sync_kwarg) is not bool:
+            raise TypeError('`sync` deve ser True ou False (bool)')
+        else:
+            return sync_kwarg        
 
     def kwargs_places(self, **kwargs) -> list:
         """
@@ -506,7 +458,6 @@ class API:
         """
         """
         date_kwarg = kwargs['date']
-        cumulative = kwargs['cumulative']
 
         if type(date_kwarg) is tuple and len(date_kwarg) == 2:
             start, stop = map(api_lib.get_date, date_kwarg)
@@ -522,10 +473,7 @@ class API:
 
         step = ONE_DAY
 
-        if cumulative:
-            return [(start, date) for date in api_lib.arange(start, stop, step)]
-        else:
-            return [(date, date) for date in api_lib.arange(start, stop, step)]
+        return [(date, date) for date in api_lib.arange(start, stop, step)]
     
     def kwargs_city_state(self, **kwargs) -> list:
         """
@@ -611,7 +559,7 @@ class API:
             else:
                 raise ValueError(f'Cidade não cadastrada: `{city_name} ({state})`.')
 
-    def get_request_queue(self, **kwargs) -> list:
+    def get_request_queue(self, **kwargs) -> APIRequestQueue:
         """
         """
         ## data lists
@@ -627,100 +575,222 @@ class API:
             dates=dates,
             cities=cities,
             places=places,
-            genders=genders,
-            headers=self.request_headers
+            genders=genders
             )
 
-    def get(self, **kwargs) -> list:
+    ## Multiprocessing things
+    @staticmethod
+    def target_func(section_num: int, section: range, requests: APIRequestQueue, progress: api_lib.Progress, sync: bool, block_size: int):
+        client = APIClient(
+            requests=(requests[j] for j in section),
+            progress=progress,
+            total=len(section),
+            sync=sync,
+            block_size=block_size
+        )
+        ## Get results generator
+        results = client.get()
+
+        ## Write to csv
+        api_io.APIIO.to_csv(f'.results-{section_num}', results)
+
+    def get(self) -> None:
         """
         """
-        api_lib.kwget(kwargs, self.kwargs)
-        try:
-            yield from self._gather(**kwargs)
-        except KeyboardInterrupt:
-            self.log('Keyboard Interrupt')
+        processes = [
+            mp.Process(
+                target=self.target_func, 
+                args=(section_num, section, self.requests, self.progress, self.sync, self.block_size)
+            ) 
+            for section_num, section in self.sections
+        ]
+
+        ## Starts displaying progress bar
+        track = self.progress.track()
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join()
+        track.join()
+
+        print('All processes finished. Writing results.')
+
+        lines = []
+        for section in range(self.threads):
+            with open(f'.results-{section}', 'r') as file:
+                header = file.readline()
+                lines.extend(file)
+
+        with open(f'results.csv', 'w') as file:
+            file.write(header)
+            file.writelines(lines)
+        print('Finished.')
+
+    def _sections(self):
+        """ This generator simply divides range(0, self.total) into sections of size `self.threads`
+        """
+        size = self.total // self.threads
+        for i in range(self.threads):
+            yield (i, range(i * size, (i + 1) * size))
+        yield (size, range(self.threads * size, self.total))
+        
+    @property
+    def sections(self):
+        return self._sections()
     
-    def login_retry(self):
+    @property
+    def total(self):
+        return self.requests.total
+
+    @property
+    def done(self):
+        return self.progress.done
+
+class APIClient:
+
+    ## Login constants
+    LOGIN_URL = r"https://transparencia.registrocivil.org.br/registral-covid"
+    LOGIN_HEADERS = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:76.0) Gecko/20100101 Firefox/76.0",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache"
+    }
+
+    def __init__(
+            self,
+            requests: object,
+            progress: api_lib.Progress,
+            total: int,
+            sync: bool=not ASYNC_MODE,
+            block_size: int=1024,
+            ):
+        ## Requests - This is a generator!!
+        self.requests = requests 
+
+        ## Progress tracker
+        self.progress = progress
+
+        ## Total requests
+        self.total = total
+
+        ## Cookies
+        self.cookie_jar = CookieJar()
+
+        ## XRSF-Token
+        self.xrsf_token = None
+
+        ## Block size
+        self.block_size = block_size
+
+        ## Asynchronous Requests
+        self.sync = sync
+        if not self.sync:
+            self.loop = asyncio.get_event_loop()
+
+    @property
+    def request_headers(self):
+        """ Headers used to avoid Error 403: Forbidden
+        """
+        return {
+            "X-XSRF-TOKEN" : self.xrsf_token,
+            "User-Agent" : "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:76.0) Gecko/20100101 Firefox/76.0",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache"
+        }
+
+    def login(self) -> None:
+        """ Realiza o login na plataforma dos cartórios.
+            Isso é feito extraindo o 'XSRF-Token' dos Cookies e adicionando aos headers.
+        """
+        ## Make request to page
+        ans, req = api_lib.request(self.LOGIN_URL, headers=self.LOGIN_HEADERS)
+        
+        ## Extract Token from Cookies
+        self.cookie_jar.extract_cookies(ans, req)
+        
+        ## Gets first occurence of the Token in the cookie jar
+        self.xrsf_token = next(cookie for cookie in self.cookie_jar if cookie.name == "XSRF-TOKEN").value
+
+    def ensure_login(self) -> None:
+        """
+        """
         while True:
             try:
                 self.login()
                 break
             except HTTPError:
+                time.sleep(1)
                 continue
 
-    def _gather(self, **kwargs):
+    def get(self) -> object:
         """
         """
-        self.log('START API._gather')
-        self.progress = api_lib.progress(self.requests.total, track=self.track)
-
-        ## Login
-        self.login_retry()
-
-        for block in self._blocks():
+        for block in self.blocks:
+            self.ensure_login()
             while block:
                 try:
-                    if kwargs['sync']:
+                    if self.sync:
                         self.sync_run(block)
                     else:
                         self.async_run(block)
+                except APIRequestError as error:
+                    API.log(error)
                 finally:
                     results = []
                     pending = []
-
                     for request in block:
                         if request.success:
-                            results.extend(request.results.results)
+                            results.extend(request.results)
+                            next(self.progress)
                         else:
                             pending.append(request)
-                    
-                    yield from results
-                    
-                    block = pending
+                    else:
+                        block = pending
+                        yield from results
+
+    ## Synchronous GET methods
+    def sync_request(self, request: APIRequest):
+        """ Dispara o request de maneira sequencial
+        """
+        request.get()
+
+    def sync_run(self, requests: list):
+        """ Dispara os requests de maneira sequencial
+        """
+        for request in requests: self.sync_request(request)
+
+    ## Asynchronous GET methods
+    async def async_request(self, request: APIRequest, session):
+        """
+        """
+        await request.async_get(session)
+
+    async def _async_run(self, requests: list):
+        """ Dispara os requests de maneira assíncrona.
+        """
+        async with aiohttp.ClientSession(headers=self.request_headers) as session:
+            tasks = [asyncio.ensure_future(self.async_request(request, session)) for request in requests]
+            await asyncio.wait(tasks)
+
+    def async_run(self, requests: list):
+        """ Dispara os requests de maneira assíncrona.
+        """
+        if not ASYNC_MODE:
+            raise ImportError("Falha ao obter as bibliotecas necessárias. Requisições assíncronas indisponíveis.")
+        else:
+            self.loop.run_until_complete(asyncio.ensure_future(self._async_run(requests)))
 
     def _blocks(self):
-        """ This generator divides the pending requests into blocks
-            of size `self.block_size`
+        """ This generator divides the pending requests into blocks of size `self.block_size`
         """
         ## Returns the whole batch
         if self.block_size is None:
-            yield self.requests
-            return
-
-        ## Splits the batch into blocks
-        for _ in range(0, self.total, self.block_size):
-            yield [next(self.requests) for _ in range(self.block_size)]
-    
-    ## Progress Properties
-    @property
-    def total(self):
-        try:
-            return self.progress.total
-        except AttributeError:
-            return self._total
+            yield [next(self.requests) for _ in range(self.total)]
+        else:
+            ## Splits the batch into blocks
+            for _ in range(0, self.total, self.block_size):
+                yield [next(self.requests) for _ in range(self.block_size)]
     
     @property
-    def _total(self) -> int:
-        return self.requests.total
-    
-    @property
-    def done(self):
-        try:
-            return self.progress.done
-        except AttributeError:
-            return self._done
-
-    @property
-    def _done(self) -> int:
-        return 0
-    
-    @property
-    def rate(self) -> float:
-        try:
-            return self.progress.rate
-        except AttributeError:
-            return self._rate
-    
-    @property
-    def _rate(self) -> float:
-        return self._done / self._total
+    def blocks(self):
+        return self._blocks()

@@ -11,8 +11,9 @@ import csv
 import json
 
 ## Local
-from api import API, CAUSES
 import api_lib
+from api_constants import CAUSES
+
 
 class APIIO:
     CSV_HEADER = ('date', 'state', 'city', 'region', 'gender', 'age', 'place') + CAUSES
@@ -28,14 +29,6 @@ class APIIO:
             for result in results:
                 row = {key : result[key] for key in cls.CSV_HEADER}
                 writer.writerow(row)
-
-    @classmethod
-    def save(cls, fname: str, results: list) -> None:
-        api_lib.pkdump(fname, results)
-
-    @classmethod
-    def load(cls, fname: str) -> list:
-        return api_lib.pkload(fname)
 
     @classmethod
     def union(cls, results: list, **kwargs) -> list:
