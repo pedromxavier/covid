@@ -11,7 +11,7 @@ def main(date=all, city=all, state=all, gender=all, age=True, places=all):
         gender=gender, ## busca para cada sexo
         age=age,  ## busca por faixa etária
         places=places, ## busca dados para cada local possível
-        block_size=1000,
+        block_size=100,
         threads=2,
     ).get() ## coleta os dados e salva em csv
 
