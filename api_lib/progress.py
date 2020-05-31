@@ -1,12 +1,13 @@
 from time import perf_counter as clock
+from time import sleep
 import multiprocessing as mp
-import threading
+import _thread as thread
 
 class Progress:
 
     __slots__ = (
         'text', '__lapse', '__total', '__lock', '__done', '_done',
-        '__start_time', '__last_length', '__finished'
+        '__start_time', '__last_length', '__finished',
     )
 
     STEPS = 20
@@ -72,6 +73,7 @@ class Progress:
         self.start()
         while not self.finished:
             self.update()
+            sleep(self.__lapse)
         else:
             self.update()
             print(f'Time elapsed: {self.total_time:.1f}s')
@@ -79,10 +81,8 @@ class Progress:
     def finish(self):
         self.__finished = True
             
-    def track(self) -> threading.Thread:
-        thread = threading.Thread(target=self.display, args=())
-        thread.start()
-        return thread
+    def track(self) -> int:
+        return thread.start_new(self.display, ())
 
     @property
     def end(self):

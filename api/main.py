@@ -618,7 +618,7 @@ class API:
 
         ## Starts displaying progress bar
         try:
-            self.progress.start()
+            self.progress.track()
             for process in processes:
                 process.start()
             for process in processes:
@@ -749,28 +749,31 @@ class APIClient:
     def get(self) -> object:
         """
         """
+        self.ensure_login()
+        requests = []
         for block in self.blocks:
-            while block:
-                self.ensure_login()
+            requests.extend(block)
+            while len(requests) > self.block_size:
                 try:
                     if self.sync:
-                        self.sync_run(block)
+                        self.sync_run(requests)
                     else:
-                        self.async_run(block)
+                        self.async_run(requests)
+                    ## self.progress.update()
                 except Exception as error:
                     API.log(error)
                 finally:
                     results = []
                     pending = []
-                    for request in block:
+                    for request in requests:
                         if request.success:
                             results.extend(request.results)
-                            next(self.progress)
                         else:
                             pending.append(request)
                     else:
-                        block = pending
-                        self.progress.update()
+                        if pending:
+                            self.ensure_login()
+                            requests = pending
                         yield from results
 
     ## Synchronous GET methods
@@ -778,6 +781,7 @@ class APIClient:
         """ Dispara o request de maneira sequencial
         """
         request.get()
+        if request.success: next(self.progress)
 
     def sync_run(self, requests: list):
         """ Dispara os requests de maneira sequencial
@@ -789,13 +793,14 @@ class APIClient:
         """
         """
         await request.async_get(session)
+        if request.success: next(self.progress)
 
     async def _async_run(self, requests: list):
         """ Dispara os requests de maneira assíncrona.
         """
         async with aiohttp.ClientSession(headers=self.request_headers) as session:
             tasks = [asyncio.ensure_future(self.async_request(request, session)) for request in requests]
-            await asyncio.wait(tasks)
+            await asyncio.gather(*tasks)
 
     def async_run(self, requests: list):
         """ Dispara os requests de maneira assíncrona.
