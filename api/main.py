@@ -671,9 +671,8 @@ class APIClient:
     ## Login constants
     LOGIN_URL = r"https://transparencia.registrocivil.org.br/registral-covid"
     LOGIN_HEADERS = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:76.0) Gecko/20100101 Firefox/76.0",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache"
+        "User-Agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:76.0) Gecko/20100101 Firefox/76.0",
+        "Cache-Control": "max-age=0",
     }
 
     def __init__(
