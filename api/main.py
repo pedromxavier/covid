@@ -604,6 +604,7 @@ class API:
         ## Write to csv
         api_io.APIIO.to_csv(f'.results-{section_num}', results)
 
+    @api_lib.standby_lock
     def get(self) -> None:
         """
         """
