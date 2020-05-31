@@ -748,8 +748,8 @@ class APIClient:
         """
         """
         for block in self.blocks:
-            self.ensure_login()
             while block:
+                self.ensure_login()
                 try:
                     if self.sync:
                         self.sync_run(block)
