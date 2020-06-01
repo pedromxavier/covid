@@ -619,27 +619,27 @@ class API:
 
         ## Starts displaying progress bar
         try:
-            self.progress.track()
+            self.progress.track(lapse=0.5)
             for process in processes:
                 process.start()
             for process in processes:
                 process.join()
-            print('Finished all processes.')
-            self.progress.finish()
         except KeyboardInterrupt:
             print('\nAborted.')
             return
         finally:
+            self.progress.finish()
             for process in processes:
                 if process.is_alive():
                     process.kill()
+            print('\nFinished all processes.')
+            
+            print('Writing results.')
 
-        print('All processes finished. Writing results.')
+            fnames = [f'.results-{section_num}.csv'for section_num in range(self.threads)]
+            api_io.APIIO.join_csv('results.csv', fnames, delete_input=True)
 
-        fnames = [f'.results-{section_num}.csv'for section_num in range(self.threads)]
-        api_io.APIIO.join_csv('results.csv', fnames, delete_input=True)
-
-        print('Finished.')
+            print('Finished.')
 
     def _sections(self):
         """ This generator simply divides range(0, self.total) into sections of size `self.threads`

@@ -81,7 +81,9 @@ class Progress:
     def finish(self):
         self.__finished = True
             
-    def track(self) -> int:
+    def track(self, lapse:float=None) -> int:
+        if lapse is not None: 
+            self.__lapse = lapse
         return thread.start_new(self.display, ())
 
     @property

@@ -35,9 +35,10 @@ class APIIO:
     def join_csv(cls, output_fname:str, fnames: list, delete_input=False):
         lines = []
         for fname in fnames:
-            with open(fname, 'r') as file:
-                header = file.readline()
-                lines.extend(file)
+            if os.path.exists(fname):
+                with open(fname, 'r') as file:
+                    header = file.readline()
+                    lines.extend(file)
 
         with open(output_fname, 'w') as file:
             file.write(header)
@@ -45,7 +46,7 @@ class APIIO:
 
         if delete_input:
             for fname in fnames:
-                os.remove(fname)
+                if os.path.exists(fname): os.remove(fname)
 
     @classmethod
     def union(cls, results: list, **kwargs) -> list:
