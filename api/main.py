@@ -768,7 +768,6 @@ class APIClient:
                     for request in requests:
                         if request.success:
                             results.extend(request.results)
-                            next(self.progress)
                         else:
                             pending.append(request)
                     else:
@@ -782,6 +781,7 @@ class APIClient:
         """ Dispara o request de maneira sequencial
         """
         request.get()
+        if request.success: next(self.progress)
 
     def sync_run(self, requests: list):
         """ Dispara os requests de maneira sequencial
@@ -793,6 +793,7 @@ class APIClient:
         """
         """
         await request.async_get(session)
+        if request.success: next(self.progress)
 
     async def _async_run(self, requests: list):
         """ Dispara os requests de maneira assíncrona.
