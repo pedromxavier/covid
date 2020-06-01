@@ -13,8 +13,16 @@ import os
 
 ## Local
 import api_lib
-from api_constants import CAUSES
+from api_constants import CAUSES, BLOCK_SIZE
 
+def get_block(iterator, n: int) -> list:
+    block = []
+    for _ in range(n):
+        try:
+            block.append(next(iterator))
+        except StopIteration:
+            break
+    return block
 
 class APIIO:
     CSV_HEADER = ('date', 'state', 'city', 'region', 'gender', 'age', 'place') + CAUSES
@@ -27,9 +35,9 @@ class APIIO:
         with open(fname, 'w', newline='') as file:
             writer = csv.DictWriter(file, fieldnames=cls.CSV_HEADER)
             writer.writeheader()
-            for result in results:
-                row = {key : result[key] for key in cls.CSV_HEADER}
-                writer.writerow(row)
+            
+            for result in get_block(results, BLOCK_SIZE):
+                writer.writerow({key : result[key] for key in cls.CSV_HEADER})
 
     @classmethod
     def join_csv(cls, output_fname:str, fnames: list, delete_input=False):
