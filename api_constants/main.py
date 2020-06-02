@@ -57,4 +57,7 @@ if IN_JUPYTER:
     except ImportError:
         JUPYTER_ASYNC_LIB = False
         warnings.warn('Falha ao importar bilioteca `nest_asyncio`. Requisições assíncronas indisponíveis no Jupyter Notebook.', category=ImportWarning, stacklevel=2)
+else:
+    JUPYTER_ASYNC_LIB = False
+
 ASYNC_MODE = ASYNC_LIB and (not IN_JUPYTER or JUPYTER_ASYNC_LIB)

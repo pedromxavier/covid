@@ -10,6 +10,9 @@
 import csv
 import json
 import os
+import queue
+import _thread as thread
+import multiprocessing as mp
 
 ## Local
 import api_lib
@@ -24,40 +27,22 @@ def get_block(iterator, n: int) -> list:
             break
     return block
 
-class APIIO:
+class Writer:
+
     CSV_HEADER = ('id', 'date', 'state', 'city', 'region', 'gender', 'age', 'place') + CAUSES
 
-    @classmethod
-    def to_csv(cls, fname: str, results: list):
+    def _write(self, fname: str, results_queue: mp.Queue):
         if not fname.endswith('.csv'):
             fname = f'{fname}.csv'
-
+        
         with open(fname, 'w', newline='') as file:
-            writer = csv.DictWriter(file, fieldnames=cls.CSV_HEADER)
+            writer = csv.DictWriter(file, fieldnames=self.CSV_HEADER)
             writer.writeheader()
-            
-            for result in get_block(results, BLOCK_SIZE):
-                writer.writerow({key : result[key] for key in cls.CSV_HEADER})
 
-    @classmethod
-    def join_csv(cls, output_fname:str, fnames: list, delete_input=False):
-        lines = []
-        for fname in fnames:
-            if os.path.exists(fname):
-                with open(fname, 'r') as file:
-                    header = file.readline()
-                    lines.extend(file)
+            result = results_queue.get(True)
+            while result is not None:
+                writer.writerow({key : result[key] for key in self.CSV_HEADER})
+                result = results_queue.get(True)
 
-        with open(output_fname, 'w') as file:
-            file.write(header)
-            file.writelines(lines)
-
-        if delete_input:
-            for fname in fnames:
-                if os.path.exists(fname): os.remove(fname)
-
-    @classmethod
-    def union(cls, results: list, **kwargs) -> list:
-        """
-        """
-        ...
+    def write(self, fname: str, results_queue: mp.Queue):
+        thread.start_new(self._write, (fname, results_queue))

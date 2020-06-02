@@ -4,7 +4,6 @@ import platform
 class MetaStandbyLock(type):
     """
     """
-
     SYSTEM = platform.system()
 
     def __new__(cls, name: str, bases: tuple, attrs: dict) -> type:
@@ -44,15 +43,16 @@ class StandbyLock(metaclass=MetaStandbyLock):
     
     def __enter__(self, *args, **kwargs):
         self.inhibit()
+        print('System Standby Inhibited')
         return self
 
     def __exit__(self, *args, **kwargs):
+        print('System Standby Lock Released')
         self.release()
 
 class WindowsStandbyLock(StandbyLock):
     """
     """
-
     ES_CONTINUOUS      = 0x80000000
     ES_SYSTEM_REQUIRED = 0x00000001
 

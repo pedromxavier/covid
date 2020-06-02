@@ -338,6 +338,7 @@ class API:
                 sync=not ASYNC_MODE,
                 block_size=BLOCK_SIZE,
                 threads=CPU_COUNT,
+                output='results',
                 ):
         """ This class is intended to:
             - Prepare and enqueue request given the query specified in 
@@ -353,12 +354,16 @@ class API:
             'sync' : sync,
             'block_size': block_size,
             'threads': threads,
+            'output': output,
         }
         ## Request Queue
         self.request_queue = self.get_request_queue(**self.kwargs)
 
         ## Results Queue
         self.results_queue = mp.Queue()
+
+        ## IO Writer
+        self.iowriter = api_io.Writer()
 
         ## Threads
         self.threads = self.kwargs_threads(**self.kwargs)
@@ -374,6 +379,9 @@ class API:
 
         ## Progress
         self.progress = api_lib.Progress(self.total, lapse=1.0)
+
+        ## Output
+        self.output = self.kwargs_output(**self.kwargs)
 
     @classmethod
     def log(cls, s: str):
@@ -394,6 +402,17 @@ class API:
                 return 'chart3'
             else: ## age is True and gender is None
                 raise RuntimeError('Isso não deve acontecer. JAMAIS!')
+
+    def kwargs_output(self, **kwargs) -> str:
+        """
+        """
+        output_kwarg = kwargs['output']
+        if type(output_kwarg) is not str:
+            raise TypeError('Ouput name must be given as `str`')
+        elif not output_kwarg.endswith('.csv'):
+            return f'{output_kwarg}.csv'
+        else:
+            return output_kwarg
 
     def kwargs_threads(self, **kwargs) -> int:
         """
@@ -583,7 +602,7 @@ class API:
 
     ## Multiprocessing things
     @staticmethod
-    def target_func(
+    def client_get(
             section_num: int,
             section: range,
             request_queue: APIRequestQueue,
@@ -624,7 +643,7 @@ class API:
 
             processes.append(
                 mp.Process(
-                    target=self.target_func, 
+                    target=self.client_get, 
                     args=args,
                 )
             )
@@ -632,6 +651,7 @@ class API:
         ## Starts displaying progress bar
         try:
             self.progress.track(lapse=0.5)
+            self.iowriter.write(self.output, self.results_queue)
             for process in processes:
                 process.start()
             for process in processes:
@@ -641,12 +661,15 @@ class API:
             return
         finally:
             self.progress.finish()
+
+            ## Sends end signal to writer
+            self.results_queue.put(None)
             for process in processes:
                 if process.is_alive():
                     process.kill()
 
     def _sections(self):
-        """ This generator simply divides range(0, self.total) into sections of size `self.threads`
+        """ This generator simply divides range(0, self.total) into `self.threads` sections
         """
         if self.threads == 1:
             yield (0, range(self.total))
@@ -789,15 +812,14 @@ class APIClient:
                         else:
                             requests = []
 
-                        for result in results: self.results_queue.put(result)
+                        for result in results:
+                            self.results_queue.put(result)
 
     ## Synchronous GET methods
     def sync_request(self, request: APIRequest):
         """ Dispara o request de maneira sequencial
         """
-        if request.get():
-            with self.lock:
-                next(self.progress)
+        if request.get(): next(self.progress)
         
 
     def sync_run(self, requests: list):
@@ -809,9 +831,7 @@ class APIClient:
     async def async_request(self, request: APIRequest, session):
         """
         """
-        if (await request.async_get(session)):
-            with self.lock:
-                next(self.progress)
+        if (await request.async_get(session)): next(self.progress)
 
     async def _async_run(self, requests: list):
         """ Dispara os requests de maneira assíncrona.
