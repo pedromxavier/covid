@@ -133,7 +133,7 @@ def update_cities():
                 print('Sem atualizações disponíveis.')
     except FileNotFoundError:
         dump_cities(ans_data, ans_hash)
-        print('Lista de cidades atualizada.')
+        warnings.warn('Lista de cidades atualizada.', stacklevel=2)
 
 def get_date(date: object):
     if type(date) is datetime.date:

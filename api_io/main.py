@@ -25,7 +25,7 @@ def get_block(iterator, n: int) -> list:
     return block
 
 class APIIO:
-    CSV_HEADER = ('date', 'state', 'city', 'region', 'gender', 'age', 'place') + CAUSES
+    CSV_HEADER = ('id', 'date', 'state', 'city', 'region', 'gender', 'age', 'place') + CAUSES
 
     @classmethod
     def to_csv(cls, fname: str, results: list):

@@ -12,7 +12,7 @@ class Progress:
 
     STEPS = 20
 
-    def __init__(self, total: int, lapse: float=None, text: str='Progresso: '):
+    def __init__(self, total: int, lapse: float=None, text: str='Progresso:'):
         ## Some text
         self.text = text
 

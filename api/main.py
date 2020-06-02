@@ -19,40 +19,24 @@ import multiprocessing as mp
 import warnings
 import pickle
 
-## Third-Party
-try:
-    import aiohttp
-    ASYNC_LIB = True
-except ImportError:
-    ASYNC_LIB = False
-    warnings.warn('Falha ao importar bilioteca `aiohttp`. Requisições assíncronas indisponíveis.', category=ImportWarning, stacklevel=2)
-
-## Jupyter Issues
-IN_JUPYTER = 'ipykernel' in sys.modules
-if IN_JUPYTER:
-    try:
-        import nest_asyncio
-        nest_asyncio.apply()
-        JUPYTER_ASYNC_LIB = True
-    except ImportError:
-        JUPYTER_ASYNC_LIB = False
-        warnings.warn('Falha ao importar bilioteca `nest_asyncio`. Requisições assíncronas indisponíveis no Jupyter Notebook.', category=ImportWarning, stacklevel=2)
-ASYNC_MODE = ASYNC_LIB and (not IN_JUPYTER or JUPYTER_ASYNC_LIB)
-
 ## Local
 import api_lib
 import api_db
 import api_io
 from api_constants import CAUSES, STATES, ID_TABLE, YEARS, GENDERS, PLACES
 from api_constants import BEGIN, TODAY, ONE_DAY
-from api_constants import BLOCK_SIZE, CPU_COUNT
+from api_constants import BLOCK_SIZE, CPU_COUNT, ASYNC_MODE, JUPYTER_ASYNC_LIB
+
+if ASYNC_MODE: import aiohttp
+if JUPYTER_ASYNC_LIB: import nest_asyncio
 
 class APIResult(object):
     """
     """
-    __slots__ = ('date', 'state', 'city', 'region', 'gender', 'chart', 'place', 'age') + CAUSES
+    __slots__ = ('id', 'date', 'state', 'city', 'region', 'gender', 'chart', 'place', 'age') + CAUSES
 
     __defaults = {
+        'id': None,
         'date': TODAY,
         'state': None,
         'city': None,
@@ -83,7 +67,7 @@ class APIResult(object):
 class APIResults(object):
     """
     """
-    __slots__ = ('date', 'state', 'city', 'region', 'gender', 'chart', 'places', 'age') + CAUSES + ('results', 'success')
+    __slots__ = ('id', 'date', 'state', 'city', 'region', 'gender', 'chart', 'places', 'age') + CAUSES + ('results', 'success')
 
     __defaults = {
         'date': TODAY,
@@ -228,10 +212,13 @@ class APIRequest(object):
             response = urlopen(self.request)
             raw_text = response.read()
             self.commit(json.loads(raw_text.decode('utf-8')))
+            return True
         except HTTPError as error:
             API.log(error)
+            return False
         except Exception as error:
             API.log(error)
+            return False
         finally:
             response.close()
 
@@ -240,12 +227,15 @@ class APIRequest(object):
             try:
                 if response.status == 200:
                     self.commit(await response.json())
-                elif response.status == 500:
-                    pass
-                else:
+                    return True
+                elif response.status == 403:
                     API.log(f'Code {response.status} in GET')
+                    return False
+                else:
+                    return False
             except Exception:
                 API.log(f'Code {response.status} in GET with Error')
+                return False
             finally:
                 response.close()
 
@@ -287,7 +277,7 @@ class APIRequestQueue:
         if not (0 <= i < self.total):
             raise IndexError(f'Out of bounds for Request Queue with lenght {self.total}')
         else:
-            data = {'age': self.age}
+            data = {'id': i, 'age': self.age}
             ## gender
             i, j = divmod(i, self.shape['genders'])
             gender = self.genders[j]
@@ -365,10 +355,16 @@ class API:
             'threads': threads,
         }
         ## Request Queue
-        self.requests = self.get_request_queue(**self.kwargs)
+        self.request_queue = self.get_request_queue(**self.kwargs)
+
+        ## Results Queue
+        self.results_queue = mp.Queue()
 
         ## Threads
         self.threads = self.kwargs_threads(**self.kwargs)
+
+        ## Lock ?
+        self.lock = mp.Lock()
 
         ## Sync
         self.sync = self.kwargs_sync(**self.kwargs)
@@ -378,9 +374,6 @@ class API:
 
         ## Progress
         self.progress = api_lib.Progress(self.total, lapse=1.0)
-
-        ## Results
-        self.results = []
 
     @classmethod
     def log(cls, s: str):
@@ -590,19 +583,27 @@ class API:
 
     ## Multiprocessing things
     @staticmethod
-    def target_func(section_num: int, section: range, request_queue: APIRequestQueue, progress: api_lib.Progress, sync: bool, block_size: int):
+    def target_func(
+            section_num: int,
+            section: range,
+            request_queue: APIRequestQueue,
+            results_queue: mp.Queue,
+            progress: api_lib.Progress,
+            lock: mp.Lock,
+            sync: bool,
+            block_size: int
+        ):
+
         client = APIClient(
             section=section,
             request_queue=request_queue,
+            results_queue=results_queue,
             progress=progress,
+            lock=lock,
             sync=sync,
             block_size=block_size
         )
-        ## Get results generator
-        results = client.get()
-
-        ## Write to csv
-        api_io.APIIO.to_csv(f'.results-{section_num}', results)
+        client.get()
 
     @api_lib.standby_lock
     def get(self) -> None:
@@ -610,10 +611,21 @@ class API:
         """
         processes = []
         for section_num, section in self.sections:
+            args = (
+                section_num,
+                section,
+                self.request_queue,
+                self.results_queue,
+                self.progress,
+                self.lock,
+                self.sync,
+                self.block_size
+                )
+
             processes.append(
                 mp.Process(
                     target=self.target_func, 
-                    args=(section_num, section, self.requests, self.progress, self.sync, self.block_size)
+                    args=args,
                 )
             )
 
@@ -632,14 +644,6 @@ class API:
             for process in processes:
                 if process.is_alive():
                     process.kill()
-            print('\nFinished all processes.')
-            
-            print('Writing results.')
-
-            fnames = [f'.results-{section_num}.csv'for section_num in range(self.threads)]
-            api_io.APIIO.join_csv('results.csv', fnames, delete_input=True)
-
-            print('Finished.')
 
     def _sections(self):
         """ This generator simply divides range(0, self.total) into sections of size `self.threads`
@@ -661,7 +665,7 @@ class API:
     
     @property
     def total(self):
-        return self.requests.total
+        return self.request_queue.total
 
     @property
     def done(self):
@@ -679,8 +683,10 @@ class APIClient:
     def __init__(
             self,
             section: range,
-            request_queue: APIRequestQueue,
+            request_queue,
+            results_queue: mp.Queue,
             progress: api_lib.Progress,
+            lock: mp.Lock,
             sync: bool=not ASYNC_MODE,
             block_size: int=1024,
             ):
@@ -690,8 +696,14 @@ class APIClient:
         ## Requests
         self.request_queue = request_queue
 
+        ## Results
+        self.results_queue = results_queue
+
         ## Progress tracker
         self.progress = progress
+
+        ## Lock
+        self.lock = lock
 
         ## Total requests
         self.total = len(section)
@@ -747,14 +759,14 @@ class APIClient:
                 continue
         self.request_queue.set_options(headers=self.request_headers)
 
-    def get(self) -> object:
+    def get(self):
         """
         """
         self.ensure_login()
         requests = []
         for block in self.blocks:
             requests.extend(block)
-            while len(requests) > self.block_size:
+            while len(requests) >= self.block_size:
                 try:
                     if self.sync:
                         self.sync_run(requests)
@@ -774,14 +786,19 @@ class APIClient:
                         if pending:
                             self.ensure_login()
                             requests = pending
-                        yield from results
+                        else:
+                            requests = []
+
+                        for result in results: self.results_queue.put(result)
 
     ## Synchronous GET methods
     def sync_request(self, request: APIRequest):
         """ Dispara o request de maneira sequencial
         """
-        request.get()
-        if request.success: next(self.progress)
+        if request.get():
+            with self.lock:
+                next(self.progress)
+        
 
     def sync_run(self, requests: list):
         """ Dispara os requests de maneira sequencial
@@ -792,8 +809,9 @@ class APIClient:
     async def async_request(self, request: APIRequest, session):
         """
         """
-        await request.async_get(session)
-        if request.success: next(self.progress)
+        if (await request.async_get(session)):
+            with self.lock:
+                next(self.progress)
 
     async def _async_run(self, requests: list):
         """ Dispara os requests de maneira assíncrona.

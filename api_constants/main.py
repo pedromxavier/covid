@@ -1,5 +1,7 @@
 import api_lib
 import datetime
+import warnings
+import sys
 import os
 
 ## Constants
@@ -34,3 +36,25 @@ BLOCK_SIZE = 1024
 
 ## Processors
 CPU_COUNT = os.cpu_count()
+
+## Asynchronous matters
+try:
+    import aiohttp
+    ASYNC_LIB = True
+    del aiohttp
+except ImportError:
+    ASYNC_LIB = False
+    warnings.warn('Falha ao importar bilioteca `aiohttp`. Requisições assíncronas indisponíveis.', category=ImportWarning, stacklevel=2)
+
+## Jupyter Issues
+IN_JUPYTER = 'ipykernel' in sys.modules
+if IN_JUPYTER:
+    try:
+        import nest_asyncio
+        nest_asyncio.apply()
+        JUPYTER_ASYNC_LIB = True
+        del nest_asyncio
+    except ImportError:
+        JUPYTER_ASYNC_LIB = False
+        warnings.warn('Falha ao importar bilioteca `nest_asyncio`. Requisições assíncronas indisponíveis no Jupyter Notebook.', category=ImportWarning, stacklevel=2)
+ASYNC_MODE = ASYNC_LIB and (not IN_JUPYTER or JUPYTER_ASYNC_LIB)
